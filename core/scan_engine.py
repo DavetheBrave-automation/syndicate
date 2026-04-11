@@ -44,6 +44,7 @@ from core.shared_state import state, MarketData       # noqa: E402
 from core.liquidity_filter import check_market        # noqa: E402
 from core.contract_classifier import classify_market  # noqa: E402
 import notifications.discord as discord               # noqa: E402
+import notifications.telegram as telegram             # noqa: E402
 
 logger = logging.getLogger("syndicate.scanner")
 
@@ -499,6 +500,9 @@ class ScanEngine:
         )
         discord.post(
             f"Heartbeat: {n_total} markets | {n_scalp} SCALP | {n_velocity} velocity events"
+        )
+        telegram.post(
+            f"Heartbeat: {n_total} markets | {n_scalp} SCALP | {n_velocity} velocity"
         )
 
     # =========================================================================

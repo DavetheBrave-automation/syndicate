@@ -155,6 +155,11 @@ def place_order(
                 _discord_post(f"PAPER FILL: {ticker} {side} @ {entry_cents}¢")
             except Exception:
                 pass
+            try:
+                from notifications.telegram import post as _tg_post
+                _tg_post(f"PAPER FILL: {ticker} {side} @ {entry_cents}¢")
+            except Exception:
+                pass
             return order_id
 
         # ── Live mode ────────────────────────────────────────────────────────
@@ -254,6 +259,11 @@ def close_position(position, exit_price: float, exit_reason: str) -> bool:
             try:
                 from notifications.discord import post as _discord_post
                 _discord_post(f"PAPER EXIT: {ticker} pnl={pnl:+.2f}")
+            except Exception:
+                pass
+            try:
+                from notifications.telegram import post as _tg_post
+                _tg_post(f"PAPER EXIT: {ticker} pnl={pnl:+.2f}")
             except Exception:
                 pass
             _record_outcome(position, exit_price, exit_reason, pnl, spread=spread)

@@ -352,6 +352,13 @@ class BaseAgent(ABC):
                 )
             except Exception:
                 pass
+            try:
+                from notifications.telegram import post as _tg_post
+                _tg_post(
+                    f"Signal: {self.name} {ticker} {signal.get('signal', {}).get('side', '?')}"
+                )
+            except Exception:
+                pass
             return True
         except Exception as e:
             logger.error("[%s] submit_signal failed: %s", self.name, e)

@@ -45,6 +45,20 @@ Write-Host "[Syndicate Gate] Started. Watching $TriggersDir for signals..."
 Write-Host "[Syndicate Gate] Root: $SyndicateRoot"
 
 # ---------------------------------------------------------------------------
+# Helper: post a message to Syndicate Telegram channel (fire-and-forget)
+# ---------------------------------------------------------------------------
+function Post-Telegram {
+    param([string]$Message, [string]$Emoji = "🎯")
+    $Token  = "8660314239:AAEwRmlfwR5GzYanGmKpFR51208gfLrrqLw"
+    $ChatId = "1560090178"
+    $Url    = "https://api.telegram.org/bot$Token/sendMessage"
+    try {
+        $Body = @{ chat_id = $ChatId; text = "$Emoji SYNDICATE | $Message" } | ConvertTo-Json -Compress
+        Invoke-RestMethod -Uri $Url -Method Post -Body $Body -ContentType "application/json" -TimeoutSec 5 | Out-Null
+    } catch { }
+}
+
+# ---------------------------------------------------------------------------
 # Helper: post a message to Syndicate Discord channel (fire-and-forget)
 # ---------------------------------------------------------------------------
 function Post-Discord {
@@ -209,6 +223,7 @@ function Invoke-AgentSignal {
         $DecisionStr = if ($DecisionObj -and $DecisionObj.PSObject.Properties["decision"]) { $DecisionObj.decision } else { "?" }
         $SignalTicker = if ($Obj.signal -and $Obj.signal.PSObject.Properties["ticker"]) { $Obj.signal.ticker } else { "?" }
         Post-Discord "TC Decision: $AgentName $SignalTicker → $DecisionStr"
+        Post-Telegram "TC: $AgentName $SignalTicker → $DecisionStr"
     } catch {
         Write-Warning ("[Syndicate Gate] Failed to write decision file: $_")
     }
