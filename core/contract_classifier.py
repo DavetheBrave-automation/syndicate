@@ -125,15 +125,24 @@ def _days_to_settlement(expiry_str: str) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Classification thresholds (hard-coded; config overrides max_size only)
+# Classification thresholds — paper mode uses 1_000 minimum across all classes
 # ---------------------------------------------------------------------------
 
-_RULES = [
-    # (class_name,  max_days, min_volume, reason_template)
-    ("SCALP",    1,  25_000, "settles in {d:.2f}d (<=1), volume ${v:,.0f} (>25000)"),
-    ("SWING",    7,  10_000, "settles in {d:.2f}d (<=7), volume ${v:,.0f} (>10000)"),
-    ("POSITION", 14,  5_000, "settles in {d:.2f}d (<=14), volume ${v:,.0f} (>5000)"),
-]
+def _get_rules() -> list:
+    """Return classification rules with volume thresholds adjusted for paper/live mode."""
+    cfg = _load_config()
+    paper = cfg.get("syndicate", {}).get("paper_mode", False)
+    if paper:
+        return [
+            ("SCALP",    1,  1_000, "settles in {d:.2f}d (<=1), volume ${v:,.0f} (>1000) [paper]"),
+            ("SWING",    7,  1_000, "settles in {d:.2f}d (<=7), volume ${v:,.0f} (>1000) [paper]"),
+            ("POSITION", 14, 1_000, "settles in {d:.2f}d (<=14), volume ${v:,.0f} (>1000) [paper]"),
+        ]
+    return [
+        ("SCALP",    1,  25_000, "settles in {d:.2f}d (<=1), volume ${v:,.0f} (>25000)"),
+        ("SWING",    7,  10_000, "settles in {d:.2f}d (<=7), volume ${v:,.0f} (>10000)"),
+        ("POSITION", 14,  5_000, "settles in {d:.2f}d (<=14), volume ${v:,.0f} (>5000)"),
+    ]
 
 _WATCH_REASON_TIME   = "settles in {d:.2f}d (>14 days — too far out)"
 _WATCH_REASON_VOLUME = "settles in {d:.2f}d but volume ${v:,.0f} too low for any class"
@@ -169,7 +178,7 @@ def classify(
     days = _days_to_settlement(expiry_str)
 
     # Apply rules in order
-    for class_name, max_days, min_vol, reason_tmpl in _RULES:
+    for class_name, max_days, min_vol, reason_tmpl in _get_rules():
         if days <= max_days and volume_dollars > min_vol:
             reason = reason_tmpl.format(d=days, v=volume_dollars)
             return ContractProfile(

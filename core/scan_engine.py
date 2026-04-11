@@ -148,6 +148,50 @@ def _pct_change(price_now: float, price_before: float) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Agent evaluate wrapper — logs entry/exit at INFO level
+# ---------------------------------------------------------------------------
+
+def _run_agent_evaluate(agent, market_data) -> None:
+    """
+    Run agent.evaluate() in a daemon thread with INFO-level entry and exit logs.
+    Exit log shows 'signal submitted' if submit_signal() fires inside evaluate(),
+    or 'no signal' if evaluate() returns without submitting.
+
+    Signal detection: submit_signal() writes triggers/{name}_signal.json atomically.
+    We record the file's mtime before/after to detect a new write.
+    """
+    import os as _os
+    ticker = market_data.ticker
+    signal_path = _os.path.join(
+        _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+        "triggers", f"{agent.name.lower()}_signal.json",
+    )
+    try:
+        before_mtime = _os.path.getmtime(signal_path) if _os.path.exists(signal_path) else 0.0
+    except OSError:
+        before_mtime = 0.0
+
+    try:
+        agent.evaluate(market_data)
+    except Exception as exc:
+        logger.error(
+            "[ScanEngine] [%s] evaluate() raised: %s | ticker=%s",
+            agent.name, exc, ticker, exc_info=True,
+        )
+        return
+
+    try:
+        after_mtime = _os.path.getmtime(signal_path) if _os.path.exists(signal_path) else 0.0
+    except OSError:
+        after_mtime = 0.0
+
+    if after_mtime > before_mtime:
+        logger.info("[ScanEngine] [%s] Signal submitted | ticker=%s", agent.name, ticker)
+    else:
+        logger.info("[ScanEngine] [%s] No signal | ticker=%s", agent.name, ticker)
+
+
+# ---------------------------------------------------------------------------
 # ScanEngine
 # ---------------------------------------------------------------------------
 
@@ -320,6 +364,21 @@ class ScanEngine:
             #    We store spread=0.0 here — liquidity_filter will gate on it.
             spread = 0.0
 
+            # ── Classify BEFORE upsert so contract_class is correct in shared_state.
+            #    Storing "WATCH" as placeholder permanently blocks _base_should_evaluate.
+            _tmp = MarketData(
+                ticker=ticker,
+                yes_price=yes_price,
+                no_bid=round(1.0 - yes_price, 4),
+                volume_dollars=volume_dollars,
+                spread=spread,
+                days_to_settlement=days_to_settlement,
+                contract_class="WATCH",
+                series_ticker=series_ticker,
+                last_update=now,
+            )
+            _profile = classify_market(_tmp)
+
             # ── Upsert into shared_state ──────────────────────────────────────
             state.upsert_market(
                 ticker=ticker,
@@ -328,7 +387,7 @@ class ScanEngine:
                 volume_dollars=volume_dollars,
                 spread=spread,
                 days_to_settlement=days_to_settlement,
-                contract_class="WATCH",    # placeholder; classifier sets real class
+                contract_class=_profile.contract_class,
                 series_ticker=series_ticker,
                 ts=now,
             )
@@ -738,9 +797,14 @@ class ScanEngine:
                             if now_mono - last < _SPAWN_COOLDOWN:
                                 continue
                             self._agent_spawn_ts[key] = now_mono
+                        logger.info(
+                            "[ScanEngine] Evaluating: agent=%s ticker=%s price=%.4f class=%s",
+                            agent.name, ticker, market_data.yes_price,
+                            market_data.contract_class,
+                        )
                         threading.Thread(
-                            target=agent.evaluate,
-                            args=(market_data,),
+                            target=_run_agent_evaluate,
+                            args=(agent, market_data),
                             daemon=True,
                             name=f"agent-{agent.name}-{ticker}",
                         ).start()
