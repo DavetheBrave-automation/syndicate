@@ -15,10 +15,12 @@ Max sizes come from config risk section:
 """
 
 import os
+import re
 import sys
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone, date
+from typing import Optional
 
 import yaml
 
@@ -125,6 +127,42 @@ def _days_to_settlement(expiry_str: str) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Ticker-date extraction — Kalshi tennis tickers embed the match date
+# (e.g. KXATPMATCH-26APR11-... = April 11 2026). The API expiry is set to
+# end-of-tournament, so we extract the match date directly from the ticker
+# and use whichever is EARLIER: ticker date vs API expiry.
+# ---------------------------------------------------------------------------
+
+_TICKER_DATE_RE = re.compile(r'(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})')
+_MONTH_MAP = {
+    "JAN": 1, "FEB": 2,  "MAR": 3,  "APR": 4,
+    "MAY": 5, "JUN": 6,  "JUL": 7,  "AUG": 8,
+    "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
+}
+
+
+def _ticker_days(ticker: str) -> Optional[float]:
+    """
+    Extract the match date embedded in the ticker (e.g. "26APR11" → 2026-04-11)
+    and return days from now to end-of-day UTC for that date.
+    Returns None if ticker contains no recognisable date pattern.
+    """
+    m = _TICKER_DATE_RE.search(ticker.upper())
+    if not m:
+        return None
+    try:
+        year  = 2000 + int(m.group(1))
+        month = _MONTH_MAP[m.group(2)]
+        day   = int(m.group(3))
+        d     = date(year, month, day)
+        expiry_dt = datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=timezone.utc)
+        delta = (expiry_dt - datetime.now(tz=timezone.utc)).total_seconds() / 86400.0
+        return max(delta, 0.0)
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Classification thresholds — paper mode uses 1_000 minimum across all classes
 # ---------------------------------------------------------------------------
 
@@ -176,6 +214,17 @@ def classify(
     }
 
     days = _days_to_settlement(expiry_str)
+
+    # If the ticker encodes a match date earlier than the API expiry (Kalshi sets
+    # expiry to tournament end, not match day), use the ticker date instead so
+    # today's matches (APR11) classify as SCALP rather than POSITION.
+    ticker_days = _ticker_days(ticker)
+    if ticker_days is not None and ticker_days < days:
+        logger.debug(
+            "[Classifier] %s: ticker date (%.2fd) < API expiry (%.2fd) — using ticker date",
+            ticker, ticker_days, days,
+        )
+        days = ticker_days
 
     # Apply rules in order
     for class_name, max_days, min_vol, reason_tmpl in _get_rules():

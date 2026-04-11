@@ -217,7 +217,7 @@ class BaseAgent(ABC):
         1. If _benched_cache is True → check if bench period expired (at most
            once per 60s via _bench_check_ts). If expired, call is_benched()
            which auto-unbenches. Re-read _benched_cache.
-        2. market.contract_class == "WATCH" → False
+        2. market.contract_class not in (SCALP, SWING, POSITION) → False
         3. market.volume_dollars <= 0 → False
         4. return True
         """
@@ -237,7 +237,10 @@ class BaseAgent(ABC):
                 return False
 
         # ── Market pre-filters ───────────────────────────────────────────────
-        if market.contract_class == "WATCH":
+        # Allow SCALP, SWING, and POSITION. Block WATCH (no buy) and any
+        # unknown class. POSITION contracts from today's matches (where Kalshi
+        # sets expiry to tournament end) must be allowed through here.
+        if market.contract_class not in ("SCALP", "SWING", "POSITION"):
             return False
 
         if market.volume_dollars <= 0:
