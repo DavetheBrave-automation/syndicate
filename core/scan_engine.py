@@ -43,6 +43,7 @@ sys.path.insert(0, _SYNDICATE_ROOT)
 from core.shared_state import state, MarketData       # noqa: E402
 from core.liquidity_filter import check_market        # noqa: E402
 from core.contract_classifier import classify_market  # noqa: E402
+import notifications.discord as discord               # noqa: E402
 
 logger = logging.getLogger("syndicate.scanner")
 
@@ -344,6 +345,7 @@ class ScanEngine:
         n_passed       = 0
         n_velocity     = 0
         n_new          = 0
+        n_scalp        = 0
         velocity_events: list[dict] = []
 
         for m in markets:
@@ -378,6 +380,8 @@ class ScanEngine:
                 last_update=now,
             )
             _profile = classify_market(_tmp)
+            if _profile.contract_class == "SCALP":
+                n_scalp += 1
 
             # ── Upsert into shared_state ──────────────────────────────────────
             state.upsert_market(
@@ -492,6 +496,9 @@ class ScanEngine:
             "[Heartbeat] %d markets scanned, %d passed liquidity, "
             "%d velocity events, %d new markets.",
             n_total, n_passed, n_velocity, n_new,
+        )
+        discord.post(
+            f"Heartbeat: {n_total} markets | {n_scalp} SCALP | {n_velocity} velocity events"
         )
 
     # =========================================================================
@@ -801,6 +808,9 @@ class ScanEngine:
                             "[ScanEngine] Evaluating: agent=%s ticker=%s price=%.4f class=%s",
                             agent.name, ticker, market_data.yes_price,
                             market_data.contract_class,
+                        )
+                        discord.post(
+                            f"Evaluating: {agent.name} → {ticker} {market_data.contract_class}"
                         )
                         threading.Thread(
                             target=_run_agent_evaluate,

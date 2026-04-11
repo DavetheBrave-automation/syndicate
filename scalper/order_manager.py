@@ -150,6 +150,11 @@ def place_order(
                 side.upper(), ticker, quantity, entry_cents,
                 stop_price, target_price, rule_id,
             )
+            try:
+                from notifications.discord import post as _discord_post
+                _discord_post(f"PAPER FILL: {ticker} {side} @ {entry_cents}¢")
+            except Exception:
+                pass
             return order_id
 
         # ── Live mode ────────────────────────────────────────────────────────
@@ -246,6 +251,11 @@ def close_position(position, exit_price: float, exit_reason: str) -> bool:
                 "[PAPER] Simulated exit: %s %s %dx @ %.3f | spread=%.3f pnl=$%.2f | %s",
                 side.upper(), ticker, quantity, exit_price, spread, pnl, exit_reason,
             )
+            try:
+                from notifications.discord import post as _discord_post
+                _discord_post(f"PAPER EXIT: {ticker} pnl={pnl:+.2f}")
+            except Exception:
+                pass
             _record_outcome(position, exit_price, exit_reason, pnl, spread=spread)
             return True
 

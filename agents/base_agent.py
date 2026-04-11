@@ -345,6 +345,13 @@ class BaseAgent(ABC):
                 "[%s] signal submitted | ticker=%s conviction=%s edge=%.2f%%",
                 self.name, ticker, conviction_tier, edge_pct,
             )
+            try:
+                from notifications.discord import post as _discord_post
+                _discord_post(
+                    f"Signal: {self.name} {ticker} {signal.get('signal', {}).get('side', '?')} edge={edge_pct:.1f}%"
+                )
+            except Exception:
+                pass
             return True
         except Exception as e:
             logger.error("[%s] submit_signal failed: %s", self.name, e)

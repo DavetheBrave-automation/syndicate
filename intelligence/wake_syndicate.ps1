@@ -45,6 +45,18 @@ Write-Host "[Syndicate Gate] Started. Watching $TriggersDir for signals..."
 Write-Host "[Syndicate Gate] Root: $SyndicateRoot"
 
 # ---------------------------------------------------------------------------
+# Helper: post a message to Syndicate Discord channel (fire-and-forget)
+# ---------------------------------------------------------------------------
+function Post-Discord {
+    param([string]$Message, [string]$Emoji = "🎯")
+    $Webhook = "https://discordapp.com/api/webhooks/1492550062298108056/J3F6tVddXjPd6YMDBdiFpzU53c4bxjBrY7v99PIXiEuNcHFBQC-9Rhh7fzXvLK1ZxCMO"
+    try {
+        $Body = @{ content = "$Emoji **SYNDICATE** | $Message" } | ConvertTo-Json -Compress
+        Invoke-RestMethod -Uri $Webhook -Method Post -Body $Body -ContentType "application/json" -TimeoutSec 5 | Out-Null
+    } catch { }
+}
+
+# ---------------------------------------------------------------------------
 # Helper: extract TC response text from Claude --output-format json envelope
 # ---------------------------------------------------------------------------
 function Get-TcText {
@@ -193,6 +205,10 @@ function Invoke-AgentSignal {
     try {
         Set-Content -Path $DecisionPath -Value $DecisionJson -Encoding UTF8
         Write-Host ("[Syndicate Gate] Decision written: " + ($AgentName.ToLower() + "_decision.json"))
+        $DecisionObj = $DecisionJson | ConvertFrom-Json -ErrorAction SilentlyContinue
+        $DecisionStr = if ($DecisionObj -and $DecisionObj.PSObject.Properties["decision"]) { $DecisionObj.decision } else { "?" }
+        $SignalTicker = if ($Obj.signal -and $Obj.signal.PSObject.Properties["ticker"]) { $Obj.signal.ticker } else { "?" }
+        Post-Discord "TC Decision: $AgentName $SignalTicker → $DecisionStr"
     } catch {
         Write-Warning ("[Syndicate Gate] Failed to write decision file: $_")
     }
