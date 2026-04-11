@@ -1,0 +1,40 @@
+# ── Secrets / credentials ──────────────────────────────────────────────────
+syndicate_config.yaml
+*.pem
+*.key
+credentials/
+
+# ── Runtime artifacts ──────────────────────────────────────────────────────
+triggers/*.json
+triggers/*.txt
+intelligence/tc_analysis.txt
+logs/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# ── Rules (agent-generated, not source-controlled) ─────────────────────────
+rules/SCALP/*.json
+rules/SWING/*.json
+rules/POSITION/*.json
+
+# ── Research outputs (ephemeral) ───────────────────────────────────────────
+research/upcoming/
+
+# ── DB / SQLite ────────────────────────────────────────────────────────────
+*.db
+*.db-shm
+*.db-wal
+
+# ── OS / IDE ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
