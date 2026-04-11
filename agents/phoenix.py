@@ -185,7 +185,7 @@ class PhoenixAgent(BaseAgent):
         "Exit immediately if trailing team scores and price snaps back 8%+ toward true prob",
         "Prefer markets where crowd has overreacted — spread narrows on mean reversion",
         "Never pyramid into a losing comeback — one position per market only",
-        "Volume must exceed 30000 for any comeback trade",
+        "Volume must exceed 1000 for any comeback trade (paper mode threshold)",
     ]
 
     # =========================================================================
@@ -209,7 +209,7 @@ class PhoenixAgent(BaseAgent):
             return False
 
         # Volume gate
-        if market.volume_dollars < 30_000:
+        if market.volume_dollars < 1_000:
             return False
 
         return True

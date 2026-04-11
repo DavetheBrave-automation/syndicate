@@ -151,7 +151,7 @@ class DiamondAgent(BaseAgent):
             return False
 
         # Minimum liquidity — crypto markets can be thinly traded
-        if market.volume_dollars < 20_000:
+        if market.volume_dollars < 1_000:
             return False
 
         # Spread too wide — market maker risk

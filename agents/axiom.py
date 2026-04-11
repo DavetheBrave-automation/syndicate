@@ -28,7 +28,7 @@ logger = logging.getLogger("syndicate.axiom")
 _TENNIS_SERIES = {"KXATPMATCH", "KXWTAMATCH"}
 
 MIN_EDGE        = 7.0
-MIN_VOLUME      = 50_000
+MIN_VOLUME      = 1_000
 MAX_SPREAD      = 0.04
 MAX_DAYS        = 3
 PRICE_THRESHOLD = 0.30   # YES below this → extreme LOW; above (1 - this) → extreme HIGH
@@ -40,7 +40,7 @@ class AxiomAgent(BaseAgent):
     name:       str       = "AXIOM"
     domain:     str       = "prediction"
     seed_rules: list[str] = [
-        "Only trade when settlement is within 3 days and volume exceeds 50000",
+        "Only trade when settlement is within 3 days and volume exceeds 1000",
         "Bet WITH market consensus at extreme prices (>70% YES or <30% YES)",
         "Spread must be 0.04 or less — wide spreads erase mathematical edge",
         "PROPHECY tier reserved for same-day settlement with 35%+ displacement from 0.5",

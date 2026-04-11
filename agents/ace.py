@@ -67,7 +67,7 @@ class AceAgent(BaseAgent):
         "Never enter in final 3 games of a set — price too volatile",
         "Clay surface: reduce edge threshold by 2% for baseline specialists",
         "Never buy trailing player down 2 sets in best-of-3",
-        "Volume must exceed 25000 before any entry",
+        "Volume must exceed 1000 before any entry",
     ]
 
     # =========================================================================
@@ -90,7 +90,7 @@ class AceAgent(BaseAgent):
             return False
 
         # 3. Liquidity gate
-        if market.volume_dollars < 25_000:
+        if market.volume_dollars < 1_000:
             return False
 
         # 4. Extreme price filter — not tradeable at edges of the curve

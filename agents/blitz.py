@@ -26,7 +26,7 @@ logger = logging.getLogger("syndicate.blitz")
 # Constants
 # ---------------------------------------------------------------------------
 
-_MIN_VOLUME        = 40_000   # higher liquidity requirement — velocity in thin markets is noise
+_MIN_VOLUME        = 1_000    # paper mode threshold — raise to 40_000 before going live
 _MAX_SPREAD        = 0.10     # wide spread during panic = dangerous fills
 _MIN_PRICE         = 0.08     # skip already-crashed contracts
 _MAX_PRICE         = 0.75     # only markets that have fallen meaningfully from a higher price
@@ -88,7 +88,7 @@ class BlitzAgent(BaseAgent):
         "300s velocity positive = short-term noise spike, not a sustained drop — PASS",
         "Never enter if yes_price < 0.08 — market is already priced out",
         "Never enter if yes_price > 0.75 — need room for a meaningful fall signal",
-        "Volume must exceed 40000 — velocity in illiquid markets is unreliable",
+        "Volume must exceed 1000 (paper mode) — raise to 40000 before going live",
         "Spread above 0.10 signals illiquidity during panic — skip to avoid bad fills",
         "Exit in 8 minutes maximum regardless of outcome — do not hold through event",
         "Pure velocity caps conviction at HIGH_CONVICTION — never PROPHECY on price speed alone",
