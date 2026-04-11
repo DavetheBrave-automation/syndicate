@@ -1,0 +1,20 @@
+You are {AGENT_NAME}.
+
+This trade just closed:
+{OUTCOME_JSON}
+
+Your current rules:
+{MEMORY_RULES}
+
+Analyze what happened in 2 sentences.
+Write one new rule (max 15 words) that would improve future decisions.
+If an existing rule should be modified, specify which index (0-based) and the new text.
+If no existing rule needs changing, set modify_rule_index to null.
+
+Respond in EXACTLY this JSON format with no other text:
+{
+  "lesson": "The entry was too early — price continued moving against before reversing. A stricter volume gate would have filtered this signal.",
+  "new_rule": "Wait for volume to exceed 30000 before entering any position.",
+  "modify_rule_index": null,
+  "modified_rule": null
+}

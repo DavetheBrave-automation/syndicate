@@ -1,0 +1,511 @@
+"""
+base_agent.py — Abstract base class for all Syndicate trading agents.
+
+Agents detect trade signals and write trigger files to triggers/.
+wake_syndicate.ps1 watches triggers/ and wakes TC (Claude CLI).
+TC writes {name}_decision.json. main.py reads it and calls order_manager.place_order().
+
+Agents do NOT import main.py, scan_engine.py, or any agent file.
+"""
+
+import os
+import sys
+import json
+import time
+import logging
+import threading
+from abc import ABC, abstractmethod
+from datetime import datetime, timezone, timedelta
+from typing import Optional
+
+# ---------------------------------------------------------------------------
+# Root path injection — agents/ lives one level below syndicate root
+# ---------------------------------------------------------------------------
+
+_AGENTS_DIR      = os.path.dirname(os.path.abspath(__file__))
+_SYNDICATE_ROOT  = os.path.dirname(_AGENTS_DIR)
+
+if _SYNDICATE_ROOT not in sys.path:
+    sys.path.insert(0, _SYNDICATE_ROOT)
+
+# ---------------------------------------------------------------------------
+# Lazy outcome_reporter import (avoids circular issues at import time)
+# ---------------------------------------------------------------------------
+
+def _get_outcome_reporter():
+    from core.outcome_reporter import outcome_reporter  # noqa: PLC0415
+    return outcome_reporter
+
+# ---------------------------------------------------------------------------
+# Logger
+# ---------------------------------------------------------------------------
+
+logger = logging.getLogger("syndicate.agents")
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+
+_MEMORY_DIR   = os.path.join(_SYNDICATE_ROOT, "memory")
+_TRIGGERS_DIR = os.path.join(_SYNDICATE_ROOT, "triggers")
+
+# ---------------------------------------------------------------------------
+# Module-level helpers
+# ---------------------------------------------------------------------------
+
+def _tier_to_conviction(tier: str) -> int:
+    """Map conviction tier string to integer 1-5."""
+    _MAP = {
+        "GLITCH":           2,
+        "HIGH_CONVICTION":  3,
+        "PROPHECY":         5,
+    }
+    return _MAP.get(tier, 1)
+
+
+def _game_to_dict(game) -> dict:
+    """
+    Safely serialise a TennisGame dataclass to a plain dict.
+    Returns {} if game is None or serialisation fails.
+    Fields: match_id, player1, player2, score_raw, true_probability,
+            is_match_point, serving.
+    """
+    if game is None:
+        return {}
+    try:
+        return {
+            "match_id":         getattr(game, "match_id", None),
+            "player1":          getattr(game, "player1", None),
+            "player2":          getattr(game, "player2", None),
+            "score_raw":        getattr(game, "score_raw", None),
+            "true_probability": getattr(game, "true_probability", None),
+            "is_match_point":   getattr(game, "is_match_point", None),
+            "serving":          getattr(game, "serving", None),
+        }
+    except Exception as e:
+        logger.warning("[BaseAgent] _game_to_dict failed: %s", e)
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# BaseAgent
+# ---------------------------------------------------------------------------
+
+class BaseAgent(ABC):
+    """
+    Abstract base for all Syndicate agents.
+
+    Subclasses must:
+      - Override class attributes: name, domain, seed_rules
+      - Implement should_evaluate(market, game=None) — must call
+        self._base_should_evaluate(market) first and return False if it returns False
+      - Implement evaluate(market, game=None) — called in daemon thread
+    """
+
+    # ── Class-level defaults (override in subclass) ──────────────────────────
+    name:       str       = "BASE"
+    domain:     str       = "all"
+    seed_rules: list[str] = []
+
+    # ── Memory lock (one per instance) ───────────────────────────────────────
+    # _benched_cache is a plain bool — GIL makes single bool read atomic.
+    # _bench_check_ts tracks monotonic time of last bench recheck.
+
+    def __init__(self):
+        self._memory_lock: threading.Lock = threading.Lock()
+        self._benched_cache: bool = False
+        self._bench_check_ts: float = 0.0  # monotonic time of last bench recheck
+
+        # Ensure directories exist
+        os.makedirs(_MEMORY_DIR, exist_ok=True)
+        os.makedirs(_TRIGGERS_DIR, exist_ok=True)
+
+        # Bootstrap _benched_cache from disk at startup (one-time I/O is fine)
+        try:
+            mem = self.load_memory()
+            self._benched_cache = mem.get("benched", False)
+        except Exception as e:
+            logger.warning("[%s] init load_memory failed: %s", self.name, e)
+            self._benched_cache = False
+
+        logger.info("[%s] initialised (domain=%s, benched=%s)",
+                    self.name, self.domain, self._benched_cache)
+
+    # =========================================================================
+    # Memory
+    # =========================================================================
+
+    def _memory_path(self) -> str:
+        return os.path.join(_MEMORY_DIR, f"{self.name}.json")
+
+    def _default_memory(self) -> dict:
+        return {
+            "name":        self.name,
+            "rules":       list(self.seed_rules),
+            "lessons":     [],
+            "performance": {
+                "trades":    0,
+                "wins":      0,
+                "losses":    0,
+                "total_pnl": 0.0,
+            },
+            "loss_streak":   0,
+            "benched":       False,
+            "benched_until": None,
+        }
+
+    def load_memory(self) -> dict:
+        """
+        Read memory/{name}.json. Thread-safe.
+        Returns default dict if file missing or corrupt.
+        """
+        path = self._memory_path()
+        with self._memory_lock:
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                # Basic sanity check — must be a dict
+                if not isinstance(data, dict):
+                    raise ValueError("memory file is not a JSON object")
+                return data
+            except FileNotFoundError:
+                return self._default_memory()
+            except Exception as e:
+                logger.warning("[%s] load_memory corrupt/invalid (%s) — using default", self.name, e)
+                return self._default_memory()
+
+    def save_memory(self, memory: dict) -> None:
+        """
+        Atomic write: write to .tmp then os.replace. Thread-safe.
+        Also updates self._benched_cache.
+        """
+        path = self._memory_path()
+        tmp_path = path + ".tmp"
+        with self._memory_lock:
+            try:
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    json.dump(memory, f, indent=2)
+                os.replace(tmp_path, path)
+            except Exception as e:
+                logger.error("[%s] save_memory failed: %s", self.name, e)
+                # Clean up tmp if it exists
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+        # Update cache AFTER releasing lock — plain bool assignment is atomic
+        self._benched_cache = memory.get("benched", False)
+
+    # =========================================================================
+    # Hot path — should_evaluate
+    # =========================================================================
+
+    @abstractmethod
+    def should_evaluate(self, market, game=None) -> bool:
+        """
+        Subclasses must implement this.
+        Must call self._base_should_evaluate(market) first and return False if it returns False.
+        No file I/O allowed here.
+        """
+        ...
+
+    def _base_should_evaluate(self, market) -> bool:
+        """
+        Shared pre-checks for the hot path. NEVER does file I/O except the
+        once-per-60s bench recheck.
+
+        1. If _benched_cache is True → check if bench period expired (at most
+           once per 60s via _bench_check_ts). If expired, call is_benched()
+           which auto-unbenches. Re-read _benched_cache.
+        2. market.contract_class == "WATCH" → False
+        3. market.volume_dollars <= 0 → False
+        4. return True
+        """
+        # ── Bench check ──────────────────────────────────────────────────────
+        if self._benched_cache:
+            now_mono = time.monotonic()
+            if now_mono - self._bench_check_ts >= 60.0:
+                self._bench_check_ts = now_mono
+                # is_benched() reads memory and may auto-unbench
+                still_benched = self.is_benched()
+                # _benched_cache updated inside is_benched() via save_memory
+                if still_benched:
+                    return False
+                # Fell through — bench expired, _benched_cache now False
+            else:
+                # Within 60s window — trust cache, skip I/O
+                return False
+
+        # ── Market pre-filters ───────────────────────────────────────────────
+        if market.contract_class == "WATCH":
+            return False
+
+        if market.volume_dollars <= 0:
+            return False
+
+        return True
+
+    # =========================================================================
+    # evaluate — implemented by subclasses
+    # =========================================================================
+
+    @abstractmethod
+    def evaluate(self, market, game=None) -> None:
+        """
+        Called in daemon thread when should_evaluate() returns True.
+        Compute edge; call submit_signal() if strong enough.
+        """
+        ...
+
+    # =========================================================================
+    # Signal
+    # =========================================================================
+
+    def build_signal(
+        self,
+        market,
+        conviction_tier: str,
+        edge_pct: float,
+        side: str,
+        entry_price: float,
+        target_price: float,
+        stop_price: float,
+        reasoning: str = "",
+        game=None,
+    ) -> dict:
+        """
+        Assemble and return a signal dict ready to write as a trigger file.
+
+        conviction_tier: "GLITCH" | "HIGH_CONVICTION" | "PROPHECY" (or other → tier 1)
+        expires_at: UTC ISO8601, 5 minutes from now.
+        max_size_dollars: derived from conviction tier via get_bet_size().
+        """
+        conviction_int   = _tier_to_conviction(conviction_tier)
+        max_size_dollars = int(self.get_bet_size(conviction_int))
+
+        mem            = self.load_memory()
+        memory_rules   = mem.get("rules", [])
+        recent_trades  = self._get_recent_trades(n=10)
+
+        expires_at = (
+            datetime.now(timezone.utc) + timedelta(minutes=5)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        return {
+            "agent": self.name,
+            "signal": {
+                "ticker":            market.ticker,
+                "contract_class":    market.contract_class,
+                "conviction_tier":   conviction_tier,
+                "edge_pct":          edge_pct,
+                "side":              side,
+                "entry_price":       entry_price,
+                "target_price":      target_price,
+                "stop_price":        stop_price,
+                "max_size_dollars":  max_size_dollars,
+                "agent_name":        self.name,
+                "reasoning":         reasoning,
+            },
+            "market": {
+                "ticker":             market.ticker,
+                "yes_price":          market.yes_price,
+                "volume_dollars":     market.volume_dollars,
+                "spread":             market.spread,
+                "days_to_settlement": market.days_to_settlement,
+                "series_ticker":      market.series_ticker,
+            },
+            "game_state":    _game_to_dict(game),
+            "memory_rules":  memory_rules,
+            "recent_trades": recent_trades,
+            "expires_at":    expires_at,
+        }
+
+    def submit_signal(self, signal: dict) -> bool:
+        """
+        Write triggers/{name.lower()}_signal.json atomically (tmp + os.replace).
+        Logs ticker, conviction_tier, edge_pct.
+        Returns True on success, False on failure.
+        """
+        filename  = f"{self.name.lower()}_signal.json"
+        path      = os.path.join(_TRIGGERS_DIR, filename)
+        tmp_path  = path + ".tmp"
+
+        sig = signal.get("signal", {})
+        ticker          = sig.get("ticker", "?")
+        conviction_tier = sig.get("conviction_tier", "?")
+        edge_pct        = sig.get("edge_pct", 0.0)
+
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(signal, f, indent=2)
+            os.replace(tmp_path, path)
+            logger.info(
+                "[%s] signal submitted | ticker=%s conviction=%s edge=%.2f%%",
+                self.name, ticker, conviction_tier, edge_pct,
+            )
+            return True
+        except Exception as e:
+            logger.error("[%s] submit_signal failed: %s", self.name, e)
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            return False
+
+    # =========================================================================
+    # Outcome
+    # =========================================================================
+
+    def on_outcome(self, outcome: dict) -> None:
+        """
+        Called by outcome_reporter registry after a trade closes.
+
+        outcome dict must have at minimum:
+          pnl (float), ticker (str), exit_reason (str)
+
+        Steps:
+          1. Load memory
+          2. Update performance stats
+          3. If loss_streak >= 5: bench for 4h
+          4. Save memory (updates _benched_cache)
+          5. Write triggers/{name.lower()}_postmortem.json atomically
+        """
+        pnl         = float(outcome.get("pnl", 0.0))
+        ticker      = outcome.get("ticker", "?")
+        exit_reason = outcome.get("exit_reason", "unknown")
+
+        mem = self.load_memory()
+
+        # ── Update performance stats ─────────────────────────────────────────
+        perf = mem.setdefault("performance", {
+            "trades": 0, "wins": 0, "losses": 0, "total_pnl": 0.0,
+        })
+        perf["trades"]    = perf.get("trades", 0) + 1
+        perf["total_pnl"] = round(perf.get("total_pnl", 0.0) + pnl, 4)
+
+        if pnl > 0:
+            perf["wins"]         = perf.get("wins", 0) + 1
+            mem["loss_streak"]   = 0
+        else:
+            perf["losses"]       = perf.get("losses", 0) + 1
+            mem["loss_streak"]   = mem.get("loss_streak", 0) + 1
+
+        loss_streak = mem["loss_streak"]
+
+        # ── Auto-bench on 5 consecutive losses ───────────────────────────────
+        if loss_streak >= 5 and not mem.get("benched", False):
+            bench_until = (
+                datetime.now(timezone.utc) + timedelta(hours=4)
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+            mem["benched"]       = True
+            mem["benched_until"] = bench_until
+            logger.warning(
+                "[%s] BENCHED — loss_streak=%d, bench_until=%s",
+                self.name, loss_streak, bench_until,
+            )
+
+        # ── Save memory (also updates _benched_cache) ────────────────────────
+        self.save_memory(mem)
+
+        logger.info(
+            "[%s] outcome recorded | ticker=%s pnl=%.4f exit_reason=%s "
+            "loss_streak=%d trades=%d",
+            self.name, ticker, pnl, exit_reason, loss_streak, perf["trades"],
+        )
+
+        # ── Write postmortem trigger ─────────────────────────────────────────
+        self._write_postmortem(outcome, mem, loss_streak)
+
+    def _write_postmortem(self, outcome: dict, mem: dict, loss_streak: int) -> None:
+        filename = f"{self.name.lower()}_postmortem.json"
+        path     = os.path.join(_TRIGGERS_DIR, filename)
+        tmp_path = path + ".tmp"
+
+        payload = {
+            "agent":        self.name,
+            "outcome":      outcome,
+            "memory_rules": mem.get("rules", []),
+            "performance":  mem.get("performance", {}),
+            "loss_streak":  loss_streak,
+            "timestamp":    datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+            os.replace(tmp_path, path)
+            logger.debug("[%s] postmortem written: %s", self.name, path)
+        except Exception as e:
+            logger.error("[%s] _write_postmortem failed: %s", self.name, e)
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+    def _get_recent_trades(self, n: int = 10) -> list:
+        """
+        Fetch the last N closed trades by this agent from outcome_reporter.
+        Lazy-imports outcome_reporter to avoid circular imports at module load.
+        Returns [] on any error.
+        """
+        try:
+            all_trades   = _get_outcome_reporter().get_recent_trades(50)
+            agent_trades = [t for t in all_trades if t.get("agent_name") == self.name]
+            return agent_trades[:n]
+        except Exception as e:
+            logger.warning("[%s] _get_recent_trades failed: %s", self.name, e)
+            return []
+
+    # =========================================================================
+    # Sizing
+    # =========================================================================
+
+    def get_bet_size(self, conviction: int) -> float:
+        """
+        conviction int 1-5 → dollar bet size $1.00-$5.00, clamped.
+        Tier 1 flat = $1.00.
+        """
+        clamped = max(1, min(5, conviction))
+        return float(clamped)
+
+    # =========================================================================
+    # Bench helpers
+    # =========================================================================
+
+    def is_benched(self) -> bool:
+        """
+        Full check (reads memory file). Auto-unbenches if benched_until < now.
+        If auto-unbenched: resets loss_streak=0, saves memory.
+        Returns bool (True = currently benched).
+        """
+        mem = self.load_memory()
+
+        if not mem.get("benched", False):
+            self._benched_cache = False
+            return False
+
+        benched_until_str: Optional[str] = mem.get("benched_until")
+        if benched_until_str is None:
+            # Benched with no expiry — stay benched (_benched_cache already True)
+            return True
+
+        try:
+            benched_until_dt = datetime.strptime(
+                benched_until_str, "%Y-%m-%dT%H:%M:%SZ"
+            ).replace(tzinfo=timezone.utc)
+        except ValueError:
+            # Malformed timestamp — stay benched to be safe
+            logger.warning("[%s] malformed benched_until: %s", self.name, benched_until_str)
+            return True
+
+        if datetime.now(timezone.utc) >= benched_until_dt:
+            # Bench period expired — auto-unbench
+            mem["benched"]       = False
+            mem["benched_until"] = None
+            mem["loss_streak"]   = 0
+            self.save_memory(mem)   # also sets _benched_cache = False via save_memory
+            logger.info("[%s] bench expired — auto-unbenched", self.name)
+            return False
+
+        # Still within bench window (_benched_cache already True)
+        return True

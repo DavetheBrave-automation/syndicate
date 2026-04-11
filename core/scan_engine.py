@@ -188,6 +188,26 @@ class ScanEngine:
 
         logger.debug("[ScanEngine] Initialised.")
 
+        # ── Agents ────────────────────────────────────────────────────────────
+        self._agents: list = []
+        try:
+            from agents.ace import AceAgent
+            from agents.axiom import AxiomAgent
+            from agents.diamond import DiamondAgent
+            self._agents = [AceAgent(), AxiomAgent(), DiamondAgent()]
+            logger.info(
+                "[ScanEngine] Agents loaded: %s",
+                [a.name for a in self._agents],
+            )
+        except ImportError as e:
+            logger.warning(
+                "[ScanEngine] Agent import failed: %s — running without agents", e
+            )
+
+        # {(agent_name, ticker): last_spawn_monotonic} — prevents thread pile-up
+        self._agent_spawn_ts: dict[tuple, float] = {}
+        self._agent_spawn_lock = threading.Lock()
+
     # =========================================================================
     # Lifecycle
     # =========================================================================
@@ -681,6 +701,35 @@ class ScanEngine:
                         ticker, pct,
                     )
 
+        # ── Agent routing — hot-path gate then daemon-thread evaluate ─────────
+        # Cooldown: at most one evaluate() spawn per (agent, ticker) per 10s.
+        _SPAWN_COOLDOWN = 10.0
+        if self._agents:
+            market_data = state.get_market(ticker)
+            if market_data is not None:
+                now_mono = time.monotonic()
+                for agent in self._agents:
+                    try:
+                        if not agent.should_evaluate(market_data):
+                            continue
+                        key = (agent.name, ticker)
+                        with self._agent_spawn_lock:
+                            last = self._agent_spawn_ts.get(key, 0.0)
+                            if now_mono - last < _SPAWN_COOLDOWN:
+                                continue
+                            self._agent_spawn_ts[key] = now_mono
+                        threading.Thread(
+                            target=agent.evaluate,
+                            args=(market_data,),
+                            daemon=True,
+                            name=f"agent-{agent.name}-{ticker}",
+                        ).start()
+                    except Exception as e:
+                        logger.error(
+                            "[ScanEngine] Agent %s routing error for %s: %s",
+                            agent.name, ticker, e,
+                        )
+
     def on_game_live(
         self, match_id: str, player1: str, player2: str
     ) -> None:
@@ -699,6 +748,24 @@ class ScanEngine:
             "timestamp": _utcnow_iso(),
         }
         _write_trigger(filename, payload)
+
+        # ── Route to all agents — each agent's should_evaluate filters its domain
+        for mkt_ticker, market_data in state.get_all_markets().items():
+            for agent in self._agents:
+                try:
+                    if agent.should_evaluate(market_data):
+                        threading.Thread(
+                            target=agent.evaluate,
+                            args=(market_data,),
+                            daemon=True,
+                            name=f"agent-{agent.name}-{mkt_ticker}",
+                        ).start()
+                except Exception as e:
+                    logger.error(
+                        "[ScanEngine] on_game_live agent routing error for %s: %s",
+                        mkt_ticker, e,
+                    )
+
         logger.info(
             "[ScanEngine] on_game_live: match_id=%s %s vs %s",
             match_id, player1, player2,
