@@ -300,6 +300,8 @@ class BaseAgent(ABC):
                 "edge_pct":          edge_pct,
                 "side":              side,
                 "entry_price":       entry_price,
+                "entry_ask":         round(1.0 - market.no_bid, 4),
+                "spread_cents":      round(market.spread * 100, 1),
                 "target_price":      target_price,
                 "stop_price":        stop_price,
                 "max_size_dollars":  max_size_dollars,

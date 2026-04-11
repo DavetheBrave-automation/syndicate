@@ -61,23 +61,24 @@ def _is_paper_mode() -> bool:
 # P&L computation
 # ---------------------------------------------------------------------------
 
-def _compute_pnl(position, exit_price: float) -> float:
+def _compute_pnl(position, exit_price: float, spread: float = 0.0) -> float:
     """
     Compute realised P&L for a closed position.
 
     entry_price on Position is cents integer (e.g. 45).
     exit_price passed here is decimal dollars (e.g. 0.62).
+    spread is the bid-ask spread in decimal dollars — deducted as round-trip cost.
 
-    YES: (exit_dollars - entry_dollars) * quantity
-    NO : ((1 - exit_dollars) - (100 - entry_cents)/100) * quantity
+    YES: (exit_dollars - entry_dollars - spread) * quantity
+    NO : ((1 - exit_dollars) - (100 - entry_cents)/100 - spread) * quantity
     """
     entry_dollars = position.entry_price / 100.0
     if position.side == "yes":
-        return (exit_price - entry_dollars) * position.quantity
+        return (exit_price - entry_dollars - spread) * position.quantity
     else:
         no_entry = (100 - position.entry_price) / 100.0
         no_exit  = 1.0 - exit_price
-        return (no_exit - no_entry) * position.quantity
+        return (no_exit - no_entry - spread) * position.quantity
 
 
 # ---------------------------------------------------------------------------
@@ -221,10 +222,10 @@ def close_position(position, exit_price: float, exit_reason: str) -> bool:
     from core.shared_state import state
 
     # Lazy import to avoid circular dependency
-    def _record_outcome(pos, ep, er, pnl):
+    def _record_outcome(pos, ep, er, pnl, spread=0.0):
         try:
             from core.outcome_reporter import outcome_reporter
-            outcome_reporter.record_outcome(pos, ep, er, pnl)
+            outcome_reporter.record_outcome(pos, ep, er, pnl, spread=spread)
         except Exception as exc:
             logger.warning("[OrderManager] outcome_reporter.record_outcome failed: %s", exc)
 
@@ -235,15 +236,17 @@ def close_position(position, exit_price: float, exit_reason: str) -> bool:
     try:
         # ── Paper mode ──────────────────────────────────────────────────────
         if _is_paper_mode():
-            pnl = _compute_pnl(position, exit_price)
+            market = state.get_market(ticker)
+            spread = market.spread if market else 0.0
+            pnl = _compute_pnl(position, exit_price, spread)
             state.record_trade_pnl(pnl)
             state.remove_position(ticker)
 
             logger.info(
-                "[PAPER] Simulated exit: %s %s %dx @ %.3f | pnl=$%.2f | %s",
-                side.upper(), ticker, quantity, exit_price, pnl, exit_reason,
+                "[PAPER] Simulated exit: %s %s %dx @ %.3f | spread=%.3f pnl=$%.2f | %s",
+                side.upper(), ticker, quantity, exit_price, spread, pnl, exit_reason,
             )
-            _record_outcome(position, exit_price, exit_reason, pnl)
+            _record_outcome(position, exit_price, exit_reason, pnl, spread=spread)
             return True
 
         # ── Live mode ────────────────────────────────────────────────────────

@@ -302,11 +302,33 @@ class ScalperEngine:
             # Always remove pending on failure so the ticker isn't locked out.
             state.remove_pending(ticker)
 
+    def _should_apply_stop(self, ticker: str, position) -> bool:
+        """
+        Returns False when the stop loss should be suppressed:
+          - Hold time < 600s (10 min warmup — don't stop within first 10 minutes)
+          - Tennis market in first set (completed_sets == 0)
+        """
+        if time.time() - position.entry_time < 600:
+            return False
+
+        try:
+            from connectors.tennis_ws import match_game_to_ticker  # noqa: PLC0415
+            game = match_game_to_ticker(ticker)
+            if game is not None:
+                set_scores     = getattr(game, "set_scores", None) or []
+                completed_sets = len(set_scores) - 1 if set_scores else 0
+                if completed_sets == 0:
+                    return False
+        except Exception:
+            pass  # connector unavailable — apply stop normally
+
+        return True
+
     def _evaluate_exit(self, ticker: str, new_price: float, rule: dict):
         """
         Exit conditions (ANY triggers):
           - new_price >= rule["target_price"]  → profit target hit
-          - new_price <= rule["stop_price"]    → stop loss hit
+          - new_price <= rule["stop_price"]    → stop loss hit (gated by _should_apply_stop)
 
         Time-based exits are handled by _check_time_exits(), NOT here.
         """
@@ -323,7 +345,7 @@ class ScalperEngine:
             reason = (
                 f"profit target hit: price={new_price:.4f} >= target={target_price:.4f}"
             )
-        elif stop_price is not None and new_price <= stop_price:
+        elif stop_price is not None and new_price <= stop_price and self._should_apply_stop(ticker, position):
             reason = (
                 f"stop loss hit: price={new_price:.4f} <= stop={stop_price:.4f}"
             )

@@ -154,7 +154,7 @@ class OutcomeReporter:
     # -----------------------------------------------------------------------
 
     def record_outcome(self, position, exit_price: float,
-                       exit_reason: str, pnl: float):
+                       exit_reason: str, pnl: float, spread: float = 0.0):
         """
         Record a closed trade outcome.
 
@@ -230,6 +230,7 @@ class OutcomeReporter:
                 exit_price=exit_price,
                 exit_reason=exit_reason,
                 pnl=pnl,
+                spread=spread,
                 hold_seconds=hold_seconds,
                 entry_time_iso=entry_time_iso,
                 exit_time_iso=exit_time_iso,
@@ -249,10 +250,12 @@ class OutcomeReporter:
 
     def _write_trigger(self, position, exit_price: float, exit_reason: str,
                        pnl: float, hold_seconds: float,
-                       entry_time_iso: str, exit_time_iso: str):
+                       entry_time_iso: str, exit_time_iso: str,
+                       spread: float = 0.0):
         os.makedirs(_TRIGGERS_DIR, exist_ok=True)
         ts_tag = exit_time_iso.replace(":", "").replace("-", "").replace("T", "_").replace("Z", "")
         filename = f"outcome_{position.ticker}_{ts_tag}.json"
+        spread_cost = round(spread * position.quantity, 4)
         payload = {
             "type":              "outcome",
             "ticker":            position.ticker,
@@ -261,6 +264,8 @@ class OutcomeReporter:
             "exit_price":        exit_price,
             "quantity":          position.quantity,
             "pnl":               round(pnl, 4),
+            "spread_cost":       spread_cost,
+            "true_pnl":          round(pnl, 4),
             "hold_seconds":      hold_seconds,
             "exit_reason":       exit_reason,
             "rule_id":           getattr(position, "rule_id", None),
