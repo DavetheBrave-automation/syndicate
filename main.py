@@ -32,10 +32,11 @@ from typing import Optional
 _SYNDICATE_ROOT = os.path.dirname(os.path.abspath(__file__))
 _ATLAS_ROOT     = os.path.join(os.path.dirname(_SYNDICATE_ROOT), "atlas")
 
-if _SYNDICATE_ROOT not in sys.path:
-    sys.path.insert(0, _SYNDICATE_ROOT)
-if _ATLAS_ROOT not in sys.path:
-    sys.path.insert(0, _ATLAS_ROOT)
+# Unconditional inserts — Python auto-adds the script dir so guards would
+# skip _SYNDICATE_ROOT, leaving Atlas at index 0. Always insert to guarantee
+# Syndicate shadows Atlas for any colliding module names.
+sys.path.insert(0, _ATLAS_ROOT)
+sys.path.insert(0, _SYNDICATE_ROOT)
 
 # ---------------------------------------------------------------------------
 # Logging setup (before any local imports that use loggers)
@@ -346,7 +347,7 @@ def _print_status():
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     positions  = state.get_all_positions()
-    pnl        = state.get_session_pnl()
+    pnl        = state.get_daily_pnl()
     exposure   = state.get_total_exposure()
     rule_stats = rule_loader.get_stats()
 
@@ -356,7 +357,7 @@ def _print_status():
         paper, now_str,
         len(positions), pnl, exposure,
         rule_stats.get("total_rules", 0),
-        state.is_halted(),
+        not state.trading_active(),
     )
 
 

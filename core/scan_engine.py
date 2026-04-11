@@ -36,8 +36,9 @@ import yaml
 _SYNDICATE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ATLAS_ROOT = os.path.join(os.path.dirname(_SYNDICATE_ROOT), "atlas")
 
-sys.path.insert(0, _SYNDICATE_ROOT)
+# Atlas inserted first so Syndicate's modules shadow it when names collide
 sys.path.insert(0, _ATLAS_ROOT)
+sys.path.insert(0, _SYNDICATE_ROOT)
 
 from core.shared_state import state, MarketData       # noqa: E402
 from core.liquidity_filter import check_market        # noqa: E402
