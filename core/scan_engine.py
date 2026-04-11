@@ -187,6 +187,10 @@ class ScanEngine:
         self._thread_opportunity: Optional[threading.Thread] = None
         self._thread_strategic:   Optional[threading.Thread] = None
 
+        # Fired once after the first heartbeat populates shared_state with tickers.
+        # Caller injects: scan_engine._on_tickers_ready = kalshi_ws.update_tickers
+        self._on_tickers_ready = None
+
         logger.debug("[ScanEngine] Initialised.")
 
         # ── Agents ────────────────────────────────────────────────────────────
@@ -396,6 +400,19 @@ class ScanEngine:
                 self._price_history[ticker] = [
                     (ts, p) for ts, p in hist if ts >= cutoff
                 ]
+
+        # ── Notify WebSocket of loaded tickers (fires once, then clears) ────────
+        if self._on_tickers_ready is not None:
+            tickers = list(state.get_all_markets().keys())
+            if tickers:
+                try:
+                    self._on_tickers_ready(tickers)
+                    logger.info(
+                        "[ScanEngine] Pushed %d tickers to WebSocket.", len(tickers)
+                    )
+                except Exception as e:
+                    logger.error("[ScanEngine] _on_tickers_ready error: %s", e)
+                self._on_tickers_ready = None  # one-shot — clear after first fire
 
         # ── Write heartbeat summary ───────────────────────────────────────────
         self._last_heartbeat = now

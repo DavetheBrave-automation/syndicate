@@ -429,7 +429,8 @@ if __name__ == "__main__":
     _load_connectors()
 
     if _kalshi_ws is not None:
-        _kalshi_ws._on_tick_callback = _on_tick   # injected by Syndicate KalshiWS
+        _kalshi_ws._on_tick_callback = _on_tick            # price tick feed
+        _scan_engine._on_tickers_ready = _kalshi_ws.update_tickers  # one-shot after first heartbeat
         _kalshi_ws.start()
         logger.info("[Main] KalshiWS started.")
 
