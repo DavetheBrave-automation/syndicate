@@ -199,7 +199,9 @@ class ScanEngine:
             from agents.ace import AceAgent
             from agents.axiom import AxiomAgent
             from agents.diamond import DiamondAgent
-            self._agents = [AceAgent(), AxiomAgent(), DiamondAgent()]
+            from agents.phoenix import PhoenixAgent
+            from agents.blitz import BlitzAgent
+            self._agents = [AceAgent(), AxiomAgent(), DiamondAgent(), PhoenixAgent(), BlitzAgent()]
             logger.info(
                 "[ScanEngine] Agents loaded: %s",
                 [a.name for a in self._agents],

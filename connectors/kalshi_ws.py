@@ -249,7 +249,10 @@ class KalshiWS:
             if parsed:
                 ticker, yes_price, no_bid, volume_dollars = parsed
                 ts = time.time()
-                state.upsert_market(ticker, yes_price, no_bid, volume_dollars, ts)
+                # update_market_price preserves spread/days_to_settlement/class/series
+                # set by the scan engine heartbeat; safe to call from this thread.
+                state.update_market_price(ticker, yes_price, no_bid, volume_dollars, ts)
+                state.set_velocity(ticker, 0.0, self.velocity_window)
 
                 # Dispatch to registered consumers (scalper + scan engine)
                 if self._on_tick_callback is not None:

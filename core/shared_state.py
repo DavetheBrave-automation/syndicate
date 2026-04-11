@@ -138,6 +138,26 @@ class SharedState:
             else:
                 m.velocity = velocity  # fallback to caller-provided value
 
+    def update_market_price(self, ticker: str, yes_price: float, no_bid: float,
+                            volume_dollars: float, ts: float):
+        """
+        Update price fields only — spread/days_to_settlement/contract_class/series_ticker
+        are NOT touched. Safe to call from the WS tick thread without overwriting
+        metadata set by the scan engine heartbeat.
+        If ticker is not yet seeded by the scan engine, the update is silently dropped.
+        """
+        with self._lock:
+            if ticker not in self.markets:
+                return
+            m = self.markets[ticker]
+            m.price_history.append((ts, yes_price))
+            cutoff = ts - 300
+            m.price_history = [(t, p) for t, p in m.price_history if t >= cutoff]
+            m.yes_price = yes_price
+            m.no_bid = no_bid
+            m.volume_dollars = volume_dollars
+            m.last_update = ts
+
     def get_market(self, ticker: str) -> Optional[MarketData]:
         with self._lock:
             return self.markets.get(ticker)
