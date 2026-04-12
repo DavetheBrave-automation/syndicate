@@ -247,7 +247,24 @@ class ScanEngine:
             from agents.diamond import DiamondAgent
             from agents.phoenix import PhoenixAgent
             from agents.blitz import BlitzAgent
-            self._agents = [AceAgent(), AxiomAgent(), DiamondAgent(), PhoenixAgent(), BlitzAgent()]
+            from agents.ghost import GhostAgent
+            from agents.endgame import EndgameAgent
+            from agents.shadow import ShadowAgent
+            from agents.oracle import OracleAgent
+            from agents.tide import TideAgent
+            from agents.cipher import CipherAgent
+            from agents.delta import DeltaAgent
+            from agents.mirror import MirrorAgent
+            from agents.sage import SageAgent
+            from agents.echo import EchoAgent
+            self._agents = [
+                AceAgent(), AxiomAgent(), DiamondAgent(),
+                PhoenixAgent(), BlitzAgent(),
+                GhostAgent(), EndgameAgent(), ShadowAgent(),
+                OracleAgent(), TideAgent(), CipherAgent(),
+                DeltaAgent(), MirrorAgent(),
+                SageAgent(), EchoAgent(),
+            ]
             logger.info(
                 "[ScanEngine] Agents loaded: %s",
                 [a.name for a in self._agents],
@@ -334,11 +351,11 @@ class ScanEngine:
         logger.info("[Heartbeat] Thread exiting.")
 
     def _run_heartbeat(self) -> None:
-        from connectors.kalshi_rest import get_sports_markets
+        from connectors.kalshi_rest import get_all_markets
 
-        markets = get_sports_markets()
+        markets = get_all_markets()
         if not markets:
-            logger.warning("[Heartbeat] get_sports_markets returned empty list.")
+            logger.warning("[Heartbeat] get_all_markets returned empty list.")
             return
 
         now = time.time()
@@ -385,13 +402,15 @@ class ScanEngine:
                 n_scalp += 1
 
             # ── Upsert into shared_state ──────────────────────────────────────
+            # Use _profile.days_to_settlement (ticker-corrected) not raw API value.
+            # Golf markets: API expiry = tournament end (~15d), ticker date = today/tomorrow.
             state.upsert_market(
                 ticker=ticker,
                 yes_price=yes_price,
                 no_bid=round(1.0 - yes_price, 4),
                 volume_dollars=volume_dollars,
                 spread=spread,
-                days_to_settlement=days_to_settlement,
+                days_to_settlement=_profile.days_to_settlement,
                 contract_class=_profile.contract_class,
                 series_ticker=series_ticker,
                 ts=now,
@@ -439,6 +458,37 @@ class ScanEngine:
                             "[Heartbeat] Velocity event: %s pct_change=%.1f%%",
                             ticker, pct,
                         )
+
+                        # ── Route velocity event to agents (WS fallback) ─────
+                        # Agents are normally triggered by WS ticks; if the WS
+                        # is silent, fire them from the heartbeat velocity path.
+                        if self._agents and liq_result.passed:
+                            now_mono = time.monotonic()
+                            for agent in self._agents:
+                                try:
+                                    if not agent.should_evaluate(market_data):
+                                        continue
+                                    key = (agent.name, ticker)
+                                    with self._agent_spawn_lock:
+                                        last = self._agent_spawn_ts.get(key, 0.0)
+                                        if now_mono - last < 60.0:  # 1-min cooldown for heartbeat path
+                                            continue
+                                        self._agent_spawn_ts[key] = now_mono
+                                    logger.info(
+                                        "[Heartbeat] Agent eval: agent=%s ticker=%s price=%.4f pct=%.1f%%",
+                                        agent.name, ticker, yes_price, pct,
+                                    )
+                                    threading.Thread(
+                                        target=_run_agent_evaluate,
+                                        args=(agent, market_data),
+                                        daemon=True,
+                                        name=f"hb-agent-{agent.name}-{ticker}",
+                                    ).start()
+                                except Exception as e:
+                                    logger.error(
+                                        "[Heartbeat] Agent %s routing error for %s: %s",
+                                        agent.name, ticker, e,
+                                    )
 
             # ── New market detection ──────────────────────────────────────────
             if ticker not in self._seen_tickers:
@@ -498,12 +548,14 @@ class ScanEngine:
             "%d velocity events, %d new markets.",
             n_total, n_passed, n_velocity, n_new,
         )
-        discord.post(
-            f"Heartbeat: {n_total} markets | {n_scalp} SCALP | {n_velocity} velocity events"
-        )
-        telegram.post(
-            f"Heartbeat: {n_total} markets | {n_scalp} SCALP | {n_velocity} velocity"
-        )
+        from notifications.telegram import should_post_heartbeat
+        if should_post_heartbeat():
+            discord.post(
+                f"Heartbeat: {n_total} markets | {n_scalp} SCALP | {n_velocity} velocity events"
+            )
+            telegram.post(
+                f"Heartbeat: {n_total} markets | {n_scalp} SCALP | {n_velocity} velocity"
+            )
 
     # =========================================================================
     # Opportunity loop  (every 30 min)
@@ -526,11 +578,11 @@ class ScanEngine:
         logger.info("[Opportunity] Thread exiting.")
 
     def _run_opportunity(self) -> None:
-        from connectors.kalshi_rest import get_sports_markets
+        from connectors.kalshi_rest import get_all_markets
 
-        markets = get_sports_markets()
+        markets = get_all_markets()
         if not markets:
-            logger.warning("[Opportunity] get_sports_markets returned empty list.")
+            logger.warning("[Opportunity] get_all_markets returned empty list.")
             return
 
         now = time.time()
@@ -642,11 +694,11 @@ class ScanEngine:
         logger.info("[Strategic] Thread exiting.")
 
     def _run_strategic(self) -> None:
-        from connectors.kalshi_rest import get_sports_markets
+        from connectors.kalshi_rest import get_all_markets
 
-        markets = get_sports_markets()
+        markets = get_all_markets()
         if not markets:
-            logger.warning("[Strategic] get_sports_markets returned empty list.")
+            logger.warning("[Strategic] get_all_markets returned empty list.")
             return
 
         now = time.time()

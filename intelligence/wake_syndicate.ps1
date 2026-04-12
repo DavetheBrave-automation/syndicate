@@ -228,8 +228,29 @@ function Invoke-AgentSignal {
         }
     }
 
+    # ── SAGE briefing + ECHO warning for this signal ─────────────────────────
+    $SignalYesPrice = if ($Obj.signal -and $Obj.signal.PSObject.Properties["entry_price"]) { $Obj.signal.entry_price } else { 0.5 }
+    $SignalClass2   = if ($Obj.signal -and $Obj.signal.PSObject.Properties["contract_class"]) { $Obj.signal.contract_class } else { "SCALP" }
+
+    $SageBriefing = "SAGE: Unavailable."
+    $EchoWarning  = "ECHO: Unavailable."
+    try {
+        $SagePy = Join-Path $SyndicateRoot "tools\get_sage_briefing.py"
+        if (Test-Path $SagePy) {
+            $SageBriefing = (& python $SagePy --ticker $SignalTicker2 --yes_price $SignalYesPrice --class_ $SignalClass2 2>$null) -join ""
+        }
+    } catch { }
+    try {
+        $EchoPy = Join-Path $SyndicateRoot "tools\get_echo_warning.py"
+        if (Test-Path $EchoPy) {
+            $EchoWarning = (& python $EchoPy --ticker $SignalTicker2 --agent $AgentName --yes_price $SignalYesPrice 2>$null) -join ""
+        }
+    } catch { }
+
     $Prompt = $BaseDecisionPrompt
     $Prompt = $Prompt.Replace("{AGENT_NAME}", $AgentName)
+    $Prompt = $Prompt.Replace("{ECHO_WARNING}", $EchoWarning)
+    $Prompt = $Prompt.Replace("{SAGE_BRIEFING}", $SageBriefing)
     $Prompt = $Prompt.Replace("{MEMORY_RULES_INJECTED_HERE}", $MemoryRulesJson)
     $Prompt = $Prompt.Replace("{RECENT_TRADES_INJECTED_HERE}", $RecentTradesJson)
     $Prompt = $Prompt.Replace("{SIGNAL_JSON_INJECTED_HERE}", $SignalJson)
@@ -507,7 +528,30 @@ while ($true) {
         $Class  = $SignalObj.signal.contract_class
         Write-Host ("[Syndicate Gate] Panel signal: " + $Ticker + " | " + $Tier + " | " + $Class + " | expires " + $SignalObj.expires_at)
 
-        $FullPrompt = $PanelPrompt + "`n`n---SIGNAL---`n`n" + $SignalRaw
+        # Inject SAGE + ECHO into panel prompt
+        $PanelYesPrice = if ($SignalObj.signal -and $SignalObj.signal.PSObject.Properties["entry_price"]) { $SignalObj.signal.entry_price } else { 0.5 }
+        $PanelClass    = if ($SignalObj.signal -and $SignalObj.signal.PSObject.Properties["contract_class"]) { $SignalObj.signal.contract_class } else { "SCALP" }
+        $PanelAgent    = if ($SignalObj.signal -and $SignalObj.signal.PSObject.Properties["agent_name"]) { $SignalObj.signal.agent_name } else { "unknown" }
+
+        $PanelSage = "SAGE: Unavailable."
+        $PanelEcho = "ECHO: Unavailable."
+        try {
+            $SagePy = Join-Path $SyndicateRoot "tools\get_sage_briefing.py"
+            if (Test-Path $SagePy) {
+                $PanelSage = (& python $SagePy --ticker $Ticker --yes_price $PanelYesPrice --class_ $PanelClass 2>$null) -join ""
+            }
+        } catch { }
+        try {
+            $EchoPy = Join-Path $SyndicateRoot "tools\get_echo_warning.py"
+            if (Test-Path $EchoPy) {
+                $PanelEcho = (& python $EchoPy --ticker $Ticker --agent $PanelAgent --yes_price $PanelYesPrice 2>$null) -join ""
+            }
+        } catch { }
+
+        $PanelFull = $PanelPrompt
+        $PanelFull = $PanelFull.Replace("{ECHO_WARNING}", $PanelEcho)
+        $PanelFull = $PanelFull.Replace("{SAGE_BRIEFING}", $PanelSage)
+        $FullPrompt = $PanelFull + "`n`n---SIGNAL---`n`n" + $SignalRaw
         $TcText = Invoke-TC -Prompt $FullPrompt -Label ("panel:" + $Ticker)
 
         if ([string]::IsNullOrWhiteSpace($TcText)) {

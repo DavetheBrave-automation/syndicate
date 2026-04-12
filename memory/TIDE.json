@@ -1,0 +1,15 @@
+{
+  "name": "TIDE",
+  "rules": [],
+  "lessons": [],
+  "performance": {
+    "trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "total_pnl": 0.0
+  },
+  "loss_streak": 0,
+  "benched": false,
+  "benched_until": null,
+  "_description": "Momentum surfer \u2014 ride sustained directional moves"
+}

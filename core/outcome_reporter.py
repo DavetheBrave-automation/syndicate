@@ -265,6 +265,21 @@ class OutcomeReporter:
             }
             self._fire(self._agents[agent_name].on_outcome, outcome_dict)
 
+        # -- ECHO grading trigger (non-blocking) ------------------------------
+        if "ECHO" in self._agents:
+            trade_record = {
+                "agent_name":    agent_name or "unknown",
+                "ticker":        position.ticker,
+                "side":          position.side,
+                "entry_price":   int(position.entry_price),
+                "exit_price":    exit_price,
+                "pnl":           pnl,
+                "hold_seconds":  hold_seconds,
+                "exit_reason":   exit_reason,
+                "edge_pct":      getattr(position, "edge_at_entry", 0.0),
+            }
+            self._fire(self._agents["ECHO"].grade_trade, trade_record)
+
         # -- Discord + Telegram notification (non-blocking) ------------------
         self._fire(
             self._post_discord_exit,
