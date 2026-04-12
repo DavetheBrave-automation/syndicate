@@ -273,10 +273,13 @@ class BaseAgent(ABC):
             return False
 
         # ── Hard price gate ──────────────────────────────────────────────────
-        # Above 75¢ = near-certain, no edge. Below 10¢ = GHOST territory.
-        # Agents that trade low-price contracts set _skip_base_price_gate=True.
+        # Sweet spot: YES must be priced 25¢–75¢.
+        # Above 75¢ → YES too expensive, no edge.
+        # Below 25¢ → buying NO costs >75¢ (= 1 - yes_price), no edge.
+        # Agents that intentionally trade outside this range (e.g. GHOST)
+        # set _skip_base_price_gate = True.
         if not self._skip_base_price_gate:
-            if market.yes_price > 0.75 or market.yes_price < 0.10:
+            if market.yes_price > 0.75 or market.yes_price < 0.25:
                 return False
 
         # ── Per-ticker cooldown ───────────────────────────────────────────────

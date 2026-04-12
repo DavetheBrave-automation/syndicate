@@ -158,11 +158,11 @@ class DiamondAgent(BaseAgent):
         if market.spread > 0.06:
             return False
 
-        # Price gates — align with Atlas brain.py entry limits
+        # Price gates — 25¢–75¢ sweet spot (aligns with base_agent gate)
         if market.yes_price > 0.75:
-            return False  # Near certain — no edge
-        if market.yes_price < 0.10:
-            return False  # GHOST territory
+            return False  # YES too expensive
+        if market.yes_price < 0.25:
+            return False  # NO too expensive (costs >75¢)
 
         return True
 
