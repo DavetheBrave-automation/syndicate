@@ -59,6 +59,7 @@ class Position:
     agent_name: str             # which agent set the rule
     contract_class: str         # SCALP / SWING / POSITION / WATCH
     edge_at_entry: float = 0.0
+    opened_by_syndicate: bool = True  # False for externally-created positions
 
 
 class SharedState:

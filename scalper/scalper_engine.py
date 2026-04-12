@@ -469,6 +469,10 @@ class ScalperEngine:
 
         positions = state.get_all_positions()
         for ticker, position in positions.items():
+            # Only manage exits for positions Syndicate opened.
+            # Positions created before this field existed (or externally) are skipped.
+            if not getattr(position, "opened_by_syndicate", False):
+                continue
             agent = self._get_agent_for_position(position)
             if agent is None:
                 continue

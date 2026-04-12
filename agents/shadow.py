@@ -216,6 +216,8 @@ class ShadowAgent(BaseAgent):
             return
 
         signal = captured[0]
+        if signal is None:
+            return  # edge below MIN_EDGE_PCT — top agent had no qualifying signal
         sig    = signal.get("signal", {})
 
         # Re-brand as SHADOW at reduced conviction
