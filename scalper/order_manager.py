@@ -29,8 +29,8 @@ _SCALPER_DIR   = os.path.dirname(os.path.abspath(__file__))
 _SYNDICATE_ROOT = os.path.dirname(_SCALPER_DIR)
 _ATLAS_ROOT    = os.path.join(os.path.dirname(_SYNDICATE_ROOT), "atlas")
 
-sys.path.insert(0, _SYNDICATE_ROOT)
 sys.path.insert(0, _ATLAS_ROOT)
+sys.path.insert(0, _SYNDICATE_ROOT)
 
 logger = logging.getLogger("syndicate.orders")
 
