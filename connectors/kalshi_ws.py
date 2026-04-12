@@ -277,6 +277,10 @@ class KalshiWS:
         elif msg_type == "error":
             logger.error("[KalshiWS] Server error: %s", msg)
 
+        # ── Unknown — debug log first occurrence per type to diagnose WS silence ──
+        else:
+            logger.info("[KalshiWS] Unknown msg_type=%r raw=%s", msg_type, str(raw)[:200])
+
     def _on_error(self, ws, error):
         logger.error("[KalshiWS] Error: %s", error)
 

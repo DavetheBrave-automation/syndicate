@@ -140,13 +140,37 @@ _MONTH_MAP = {
     "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
 }
 
+# Golf round-leader tickers: KXPGAR3LEAD-MAST26-XSCH → R3 = today ≈ SCALP
+# KXPGAR1LEAD=R1 day, KXPGAR2LEAD=R2 day, etc.
+_GOLF_SERIES_ROUND = {
+    "KXPGATOUR":   2.0,   # Tournament winner — Masters R4 tomorrow → SWING
+    "KXPGAR1LEAD": 4.0,   # R1 leader markets open ~4 days before settlement
+    "KXPGAR2LEAD": 3.0,
+    "KXPGAR3LEAD": 0.5,   # R3 leader = today/tomorrow → SCALP
+    "KXPGAR4LEAD": 0.3,   # R4 leader = today → SCALP
+}
+# Legacy round suffix pattern (kept for compatibility)
+_GOLF_ROUND_RE   = re.compile(r'-R(\d+)$', re.IGNORECASE)
+_GOLF_ROUND_DAYS = {"4": 0.3, "3": 1.5, "2": 3.0, "1": 4.0}
+
 
 def _ticker_days(ticker: str) -> Optional[float]:
     """
-    Extract the match date embedded in the ticker (e.g. "26APR11" → 2026-04-11)
-    and return days from now to end-of-day UTC for that date.
-    Returns None if ticker contains no recognisable date pattern.
+    Extract the date or round embedded in the ticker and return days to settlement.
+    - Tennis/sports: "26APR11" → April 11 2026 → days from now
+    - Golf: "-R4" → final round ≈ today (0.3d); "-R3" ≈ 1.5d; etc.
+    Returns None if no recognisable pattern found.
     """
+    # Golf series-based override — KXPGAR3LEAD etc.
+    ticker_upper = ticker.upper()
+    for series_prefix, days in _GOLF_SERIES_ROUND.items():
+        if ticker_upper.startswith(series_prefix):
+            return days
+    # Legacy round-suffix pattern
+    if "KXGOLF" in ticker_upper or "KXPGA" in ticker_upper:
+        m = _GOLF_ROUND_RE.search(ticker)
+        if m:
+            return _GOLF_ROUND_DAYS.get(m.group(1), None)
     m = _TICKER_DATE_RE.search(ticker.upper())
     if not m:
         return None
@@ -167,19 +191,20 @@ def _ticker_days(ticker: str) -> Optional[float]:
 # ---------------------------------------------------------------------------
 
 def _get_rules() -> list:
-    """Return classification rules with volume thresholds adjusted for paper/live mode."""
+    """Return classification rules with volume thresholds from config."""
     cfg = _load_config()
     paper = cfg.get("syndicate", {}).get("paper_mode", False)
+    min_vol = float(cfg.get("liquidity", {}).get("min_daily_volume", 1_000))
     if paper:
         return [
-            ("SCALP",    1,  1_000, "settles in {d:.2f}d (<=1), volume ${v:,.0f} (>1000) [paper]"),
-            ("SWING",    7,  1_000, "settles in {d:.2f}d (<=7), volume ${v:,.0f} (>1000) [paper]"),
-            ("POSITION", 14, 1_000, "settles in {d:.2f}d (<=14), volume ${v:,.0f} (>1000) [paper]"),
+            ("SCALP",    1,  min_vol, f"settles in {{d:.2f}}d (<=1), volume ${{v:,.0f}} (>{min_vol:.0f}) [paper]"),
+            ("SWING",    7,  min_vol, f"settles in {{d:.2f}}d (<=7), volume ${{v:,.0f}} (>{min_vol:.0f}) [paper]"),
+            ("POSITION", 14, min_vol, f"settles in {{d:.2f}}d (<=14), volume ${{v:,.0f}} (>{min_vol:.0f}) [paper]"),
         ]
     return [
-        ("SCALP",    1,  25_000, "settles in {d:.2f}d (<=1), volume ${v:,.0f} (>25000)"),
-        ("SWING",    7,  10_000, "settles in {d:.2f}d (<=7), volume ${v:,.0f} (>10000)"),
-        ("POSITION", 14,  5_000, "settles in {d:.2f}d (<=14), volume ${v:,.0f} (>5000)"),
+        ("SCALP",    1,  min_vol, f"settles in {{d:.2f}}d (<=1), volume ${{v:,.0f}} (>{min_vol:.0f})"),
+        ("SWING",    7,  min_vol, f"settles in {{d:.2f}}d (<=7), volume ${{v:,.0f}} (>{min_vol:.0f})"),
+        ("POSITION", 14, min_vol, f"settles in {{d:.2f}}d (<=14), volume ${{v:,.0f}} (>{min_vol:.0f})"),
     ]
 
 _WATCH_REASON_TIME   = "settles in {d:.2f}d (>14 days — too far out)"

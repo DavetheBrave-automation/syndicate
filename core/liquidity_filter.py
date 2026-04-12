@@ -137,7 +137,7 @@ def check_contract(market: MarketData, edge_pct: float = 0.0) -> LiquidityResult
     # ── Gate 1: WATCH class — always reject ─────────────────────────────────
     if contract_class == "WATCH":
         reason = "contract class WATCH — research only, no buy"
-        logger.info("[LiquidityFilter] REJECT %s — %s", ticker, reason)
+        logger.debug("[LiquidityFilter] REJECT %s — %s", ticker, reason)
         _append_rejection(ticker, reason, market)
         return LiquidityResult(
             passed=False,
@@ -164,7 +164,7 @@ def check_contract(market: MarketData, edge_pct: float = 0.0) -> LiquidityResult
                 f"days_to_settlement {days:.2f} exceeds max {max_days:.0f} "
                 f"(edge {edge_pct:.1f}% < {override_edge:.0f}% override threshold)"
             )
-            logger.info("[LiquidityFilter] REJECT %s — %s", ticker, reason)
+            logger.debug("[LiquidityFilter] REJECT %s — %s", ticker, reason)
             _append_rejection(ticker, reason, market)
             return LiquidityResult(
                 passed=False,
@@ -178,7 +178,7 @@ def check_contract(market: MarketData, edge_pct: float = 0.0) -> LiquidityResult
     v = market.volume_dollars
     if v < min_volume:
         reason = f"volume ${v:,.0f} below min ${min_volume:,.0f}"
-        logger.info("[LiquidityFilter] REJECT %s — %s", ticker, reason)
+        logger.debug("[LiquidityFilter] REJECT %s — %s", ticker, reason)
         _append_rejection(ticker, reason, market)
         return LiquidityResult(
             passed=False,
@@ -192,7 +192,7 @@ def check_contract(market: MarketData, edge_pct: float = 0.0) -> LiquidityResult
     s = market.spread
     if s > max_spread:
         reason = f"spread {s:.3f} exceeds max {max_spread:.3f}"
-        logger.info("[LiquidityFilter] REJECT %s — %s", ticker, reason)
+        logger.debug("[LiquidityFilter] REJECT %s — %s", ticker, reason)
         _append_rejection(ticker, reason, market)
         return LiquidityResult(
             passed=False,
@@ -231,6 +231,8 @@ def check_market(ticker: str, market: MarketData, edge_pct: float = 0.0) -> Liqu
     # Work on a shallow copy — never touch the live SharedState object.
     local_market = copy.copy(market)
     local_market.contract_class = profile.contract_class
+    # Use the classifier's corrected days (ticker date may override raw API expiry).
+    local_market.days_to_settlement = profile.days_to_settlement
 
     result = check_contract(local_market, edge_pct=edge_pct)
 
