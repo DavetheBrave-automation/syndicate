@@ -490,6 +490,40 @@ class ScanEngine:
                                         agent.name, ticker, e,
                                     )
 
+            # ── Heartbeat agent sweep ─────────────────────────────────────────
+            # Fires agents on every liquid market every 5 min.
+            # Velocity path already handles WS-driven spikes (1-min cooldown).
+            # This sweep ensures agents evaluate even when prices are stable.
+            # Tennis markets are skipped — they rely on on_market_update() WS ticks.
+            if (self._agents and liq_result.passed
+                    and not ticker.startswith(("KXATPMATCH", "KXWTAMATCH"))):
+                now_mono = time.monotonic()
+                for agent in self._agents:
+                    try:
+                        if not agent.should_evaluate(market_data):
+                            continue
+                        key = (agent.name, ticker)
+                        with self._agent_spawn_lock:
+                            last = self._agent_spawn_ts.get(key, 0.0)
+                            if now_mono - last < 300.0:  # 5-min cooldown per agent/ticker
+                                continue
+                            self._agent_spawn_ts[key] = now_mono
+                        logger.info(
+                            "[Heartbeat] Agent sweep: agent=%s ticker=%s price=%.4f class=%s",
+                            agent.name, ticker, yes_price, market_data.contract_class,
+                        )
+                        threading.Thread(
+                            target=_run_agent_evaluate,
+                            args=(agent, market_data),
+                            daemon=True,
+                            name=f"hb-sweep-{agent.name}-{ticker}",
+                        ).start()
+                    except Exception as e:
+                        logger.error(
+                            "[Heartbeat] Agent sweep error: agent=%s ticker=%s err=%s",
+                            agent.name, ticker, e,
+                        )
+
             # ── New market detection ──────────────────────────────────────────
             if ticker not in self._seen_tickers:
                 self._seen_tickers.add(ticker)
