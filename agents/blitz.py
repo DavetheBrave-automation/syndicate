@@ -81,8 +81,9 @@ class BlitzAgent(BaseAgent):
     trend, not single-tick noise). Exit target: +15% within 8 minutes.
     """
 
-    name       = "BLITZ"
-    domain     = "all"
+    name                  = "BLITZ"
+    domain                = "all"
+    EVAL_COOLDOWN_SECONDS = 300.0   # Fast-signal agent — re-evaluate every 5 min
     seed_rules = [
         "Only enter when 60s price velocity < -15% and 300s velocity also negative",
         "300s velocity positive = short-term noise spike, not a sustained drop — PASS",

@@ -48,6 +48,8 @@ logger = logging.getLogger("syndicate.agents")
 
 MIN_EDGE_PCT: float = 10.0   # Minimum edge % required in build_signal
 
+EVAL_COOLDOWN_SECONDS: float = 1800.0  # Default: 30 min between re-evaluations per ticker
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -116,6 +118,10 @@ class BaseAgent(ABC):
     # Set True in subclasses that trade low-price contracts (e.g. GHOST)
     _skip_base_price_gate: bool = False
 
+    # Seconds between re-evaluations of the same ticker by this agent.
+    # Override to 300 in fast-signal agents (BLITZ, TIDE).
+    EVAL_COOLDOWN_SECONDS: float = 1800.0
+
     # ── Memory lock (one per instance) ───────────────────────────────────────
     # _benched_cache is a plain bool — GIL makes single bool read atomic.
     # _bench_check_ts tracks monotonic time of last bench recheck.
@@ -124,6 +130,7 @@ class BaseAgent(ABC):
         self._memory_lock: threading.Lock = threading.Lock()
         self._benched_cache: bool = False
         self._bench_check_ts: float = 0.0  # monotonic time of last bench recheck
+        self._eval_cooldowns: dict = {}     # cooldown_key → last eval timestamp
 
         # Ensure directories exist
         os.makedirs(_MEMORY_DIR, exist_ok=True)
@@ -261,6 +268,14 @@ class BaseAgent(ABC):
         if not self._skip_base_price_gate:
             if market.yes_price > 0.75 or market.yes_price < 0.10:
                 return False
+
+        # ── Per-ticker cooldown ───────────────────────────────────────────────
+        # Don't re-evaluate the same ticker within EVAL_COOLDOWN_SECONDS.
+        cooldown_key = f"{self.name}:{market.ticker}"
+        last_eval = self._eval_cooldowns.get(cooldown_key, 0)
+        if time.time() - last_eval < self.EVAL_COOLDOWN_SECONDS:
+            return False
+        self._eval_cooldowns[cooldown_key] = time.time()
 
         return True
 

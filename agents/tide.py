@@ -57,8 +57,9 @@ def _calc_velocity_over(price_history: list, window_seconds: float) -> float:
 
 
 class TideAgent(BaseAgent):
-    name   = "TIDE"
-    domain = "all"
+    name                  = "TIDE"
+    domain                = "all"
+    EVAL_COOLDOWN_SECONDS = 300.0   # Fast-signal agent — re-evaluate every 5 min
 
     seed_rules = [
         "Buy contracts already moving in a direction — ride the wave not the reversal",
