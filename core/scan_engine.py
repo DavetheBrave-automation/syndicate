@@ -24,7 +24,7 @@ import json
 import time
 import logging
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import yaml
@@ -269,6 +269,25 @@ class ScanEngine:
                 "[ScanEngine] Agents loaded: %s",
                 [a.name for a in self._agents],
             )
+
+            # ── Validation phase: bench DIAMOND and ORACLE for 30 days ────────
+            # Re-enable manually once 50 sports trades with positive P&L achieved.
+            _BENCHED_FOR_VALIDATION = {"DIAMOND", "ORACLE"}
+            _bench_until = (
+                datetime.now(timezone.utc) + timedelta(days=30)
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+            for _agent in self._agents:
+                if _agent.name in _BENCHED_FOR_VALIDATION:
+                    _mem = _agent.load_memory()
+                    if not _mem.get("benched"):
+                        _mem["benched"]       = True
+                        _mem["benched_until"] = _bench_until
+                        _agent.save_memory(_mem)
+                    logger.info(
+                        "[ScanEngine] VALIDATION: %s benched until %s",
+                        _agent.name, _mem.get("benched_until"),
+                    )
+
         except ImportError as e:
             logger.warning(
                 "[ScanEngine] Agent import failed: %s — running without agents", e
@@ -582,14 +601,38 @@ class ScanEngine:
             "%d velocity events, %d new markets.",
             n_total, n_passed, n_velocity, n_new,
         )
+        # ── Validation phase status for heartbeat message ────────────────────
+        cfg = _load_config()
+        vp  = cfg.get("validation_phase", {})
+        _vp_active  = vp.get("active", False)
+        _vp_start   = vp.get("start_date", "2026-04-12")
+        _vp_end     = vp.get("end_date", "2026-05-12")
+        _vp_benched = vp.get("benched_agents", [])
+        _n_agents   = len(self._agents)
+
+        if _vp_active:
+            try:
+                from datetime import date as _date
+                _start_d = _date.fromisoformat(_vp_start)
+                _day_num = (datetime.now(timezone.utc).date() - _start_d).days + 1
+            except Exception:
+                _day_num = 1
+            _vp_label = (
+                f"VALIDATION DAY {_day_num} | sports-only | "
+                f"{'/'.join(_vp_benched)} benched"
+            )
+        else:
+            _vp_label = None
+
         from notifications.telegram import should_post_heartbeat
         if should_post_heartbeat():
-            discord.post(
-                f"Heartbeat: {n_total} markets | {n_scalp} SCALP | {n_velocity} velocity events"
+            _hb_base = (
+                f"{'[Syndicate] ' + _vp_label + chr(10) if _vp_label else ''}"
+                f"{n_total} markets | {n_passed} liquid | {n_scalp} SCALP | "
+                f"{n_velocity} velocity | {_n_agents} agents"
             )
-            telegram.post(
-                f"Heartbeat: {n_total} markets | {n_scalp} SCALP | {n_velocity} velocity"
-            )
+            discord.post(_hb_base)
+            telegram.post(_hb_base)
 
     # =========================================================================
     # Opportunity loop  (every 30 min)

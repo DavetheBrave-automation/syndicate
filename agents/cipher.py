@@ -117,6 +117,57 @@ def _query_pattern(series: str, price_bkt: str, contract_class: str) -> dict:
     }
 
 
+def _cipher_validation_stats() -> dict:
+    """
+    Query syndicate_trades.db for CIPHER's contribution to the validation phase.
+    Returns counts of patterns discovered, patterns with 60%+ win rate, total trades,
+    total P&L, and estimated trades until DIAMOND/ORACLE unlock (50 trade threshold).
+    """
+    if not os.path.exists(_DB_PATH):
+        return {"total_trades": 0, "total_pnl": 0.0, "patterns_discovered": 0,
+                "patterns_qualified": 0, "trades_until_unlock": 50}
+    try:
+        conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+
+        total_row = conn.execute(
+            "SELECT COUNT(*) as n, COALESCE(SUM(pnl),0) as pnl FROM syndicate_trades"
+        ).fetchone()
+        total_trades = total_row["n"]
+        total_pnl    = round(float(total_row["pnl"]), 2)
+
+        # Count distinct patterns (series+class+price_bucket proxied by price range)
+        pattern_rows = conn.execute(
+            """SELECT SUBSTR(ticker, 1, INSTR(ticker,'-')-1) AS series,
+                      contract_class,
+                      CAST(entry_price*5 AS INT) AS pbkt,
+                      COUNT(*) AS cnt,
+                      SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS wins
+               FROM syndicate_trades
+               GROUP BY series, contract_class, pbkt
+               HAVING cnt >= 10"""
+        ).fetchall()
+        conn.close()
+
+        patterns_discovered  = len(pattern_rows)
+        patterns_qualified   = sum(
+            1 for r in pattern_rows if r["cnt"] > 0 and r["wins"] / r["cnt"] >= 0.60
+        )
+    except Exception as e:
+        logger.debug("[CIPHER] validation_stats error: %s", e)
+        return {"total_trades": 0, "total_pnl": 0.0, "patterns_discovered": 0,
+                "patterns_qualified": 0, "trades_until_unlock": 50}
+
+    unlock_threshold = 50
+    return {
+        "total_trades":        total_trades,
+        "total_pnl":           total_pnl,
+        "patterns_discovered": patterns_discovered,
+        "patterns_qualified":  patterns_qualified,
+        "trades_until_unlock": max(0, unlock_threshold - total_trades),
+    }
+
+
 class CipherAgent(BaseAgent):
     name   = "CIPHER"
     domain = "all"
@@ -133,6 +184,83 @@ class CipherAgent(BaseAgent):
         "YES side: buy when YES entries historically win 60%+ in this pattern",
         "NO side: buy when NO entries historically win 60%+ in this pattern",
     ]
+
+    def __init__(self):
+        super().__init__()
+        self._last_validation_report_ts: float = 0.0  # epoch of last weekly report
+
+    # =========================================================================
+    # Validation phase weekly status report
+    # =========================================================================
+
+    def _maybe_post_validation_report(self) -> None:
+        """
+        Post a validation status report once every 24 hours.
+        Writes cipher_validation_status.json to triggers/ for TC to read.
+        """
+        import time as _time
+        now = _time.time()
+        if now - self._last_validation_report_ts < 86400:
+            return
+        self._last_validation_report_ts = now
+
+        stats = _cipher_validation_stats()
+        total    = stats["total_trades"]
+        pnl      = stats["total_pnl"]
+        disc     = stats["patterns_discovered"]
+        qual     = stats["patterns_qualified"]
+        unlock   = stats["trades_until_unlock"]
+
+        from datetime import date as _date
+        try:
+            from datetime import date as _date
+            start_d  = _date(2026, 4, 12)
+            day_num  = (_date.today() - start_d).days + 1
+        except Exception:
+            day_num = 1
+
+        unlock_date = (
+            datetime.now(timezone.utc).date()
+            + __import__("datetime").timedelta(days=max(0, unlock // 3))
+        ).isoformat() if unlock > 0 else "UNLOCKED"
+
+        msg = (
+            f"[CIPHER] Validation Phase — Day {day_num}\n"
+            f"Patterns discovered: {disc}\n"
+            f"Patterns with 60%+ win rate: {qual}\n"
+            f"Total trades: {total} | P&L: ${pnl:+.2f}\n"
+            f"Trades until DIAMOND/ORACLE unlock: {unlock}\n"
+            f"Estimated unlock date: {unlock_date}"
+        )
+        logger.info(msg)
+
+        # Write trigger for TC
+        import json as _json
+        import os as _os
+        _triggers = _os.path.join(_SYNDICATE_ROOT, "triggers")
+        _os.makedirs(_triggers, exist_ok=True)
+        _path = _os.path.join(_triggers, "cipher_validation_status.json")
+        try:
+            with open(_path + ".tmp", "w", encoding="utf-8") as f:
+                _json.dump({
+                    "type":                "cipher_validation_status",
+                    "day":                 day_num,
+                    "patterns_discovered": disc,
+                    "patterns_qualified":  qual,
+                    "total_trades":        total,
+                    "total_pnl":           pnl,
+                    "trades_until_unlock": unlock,
+                    "unlock_date":         unlock_date,
+                }, f, indent=2)
+            _os.replace(_path + ".tmp", _path)
+        except Exception as e:
+            logger.debug("[CIPHER] validation status write failed: %s", e)
+
+        try:
+            from notifications.telegram import post as _tg
+            _tg(msg)
+        except Exception:
+            pass
 
     # =========================================================================
     # should_evaluate — hot path (minimal I/O check)
@@ -166,6 +294,8 @@ class CipherAgent(BaseAgent):
         YES side: buy when YES entries historically win on this pattern
         NO side:  buy when NO entries historically win on this pattern
         """
+        self._maybe_post_validation_report()
+
         series  = _extract_series(market.ticker)
         bkt     = _price_bucket(market.yes_price)
         cls_    = market.contract_class

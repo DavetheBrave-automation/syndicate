@@ -221,30 +221,25 @@ def _delete(endpoint: str) -> dict:
 # KXMVESPORTSMULTIGAMEEXTENDED / KXMVECROSSCATEGORY deliberately omitted:
 # they contain 20,000+ illiquid micro-prop markets that flood pagination.
 _KNOWN_SPORTS_SERIES = [
-    # Sports — match/tournament winners
-    "KXATPMATCH",    # ATP Tennis Match Winner  (also owned by Atlas)
-    "KXWTAMATCH",    # WTA Tennis Match Winner  (also owned by Atlas)
+    # Tennis — Atlas owns match winners; Syndicate watches for cross-signals
+    "KXATPMATCH",    # ATP Tennis Match Winner
+    "KXWTAMATCH",    # WTA Tennis Match Winner
+    # Golf
     "KXPGATOUR",     # PGA Tour tournament winner
     "KXPGAR1LEAD",   # PGA Round 1 leader
     "KXPGAR2LEAD",   # PGA Round 2 leader
     "KXPGAR3LEAD",   # PGA Round 3 leader
     "KXPGAR4LEAD",   # PGA Round 4 leader
+    # Team sports
     "KXNBA",         # NBA
     "KXMLB",         # MLB
     "KXNHL",         # NHL
     "KXNFL",         # NFL
     "KXSOCCER",      # Soccer / MLS
     "KXNCAA",        # College sports
-    # Crypto
-    "KXBTCD",        # Bitcoin daily/weekly
-    "KXETHUSD",      # Ethereum daily/weekly
-    # Politics / Economics
-    "KXPOL",         # US Politics
-    "KXECON",        # Economics indicators
-    "KXFED",         # Federal Reserve rate decisions
-    "KXCPI",         # CPI / inflation
-    "KXELEC",        # Elections
-    "KXAPPROVAL",    # Presidential approval ratings
+    # NOTE: Crypto, politics, and economics series removed for 30-day validation phase.
+    # Re-enable after 50 sports trades with positive P&L:
+    # KXBTCD, KXETHUSD, KXPOL, KXECON, KXFED, KXCPI, KXELEC, KXAPPROVAL
 ]
 
 _active_series_cache: list[str] = []
