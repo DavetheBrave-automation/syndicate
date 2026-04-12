@@ -212,6 +212,59 @@ def _delete(endpoint: str) -> dict:
 # Public API
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Series discovery — never hardcode guesses
+# ---------------------------------------------------------------------------
+
+# Known sports series prefixes — probed on every startup.
+# Any series returning ≥1 open market is included automatically.
+_KNOWN_SPORTS_SERIES = [
+    "KXATPMATCH",    # ATP Tennis Match Winner
+    "KXWTAMATCH",    # WTA Tennis Match Winner
+    "KXPGATOUR",     # PGA / Masters tournament winner
+    "KXPGAR1LEAD",   # PGA Round 1 leader
+    "KXPGAR2LEAD",   # PGA Round 2 leader
+    "KXPGAR3LEAD",   # PGA Round 3 leader
+    "KXPGAR4LEAD",   # PGA Round 4 leader
+    "KXNBA",         # NBA
+    "KXMLB",         # MLB
+    "KXNHL",         # NHL
+    "KXNFL",         # NFL
+    "KXSOCCER",      # Soccer / MLS
+    "KXNCAA",        # College sports
+    # "KXMVESPORTSMULTIGAMEEXTENDED",  # multi-game props — 2000+ markets, excluded
+]
+
+_active_series_cache: list[str] = []
+_active_series_ts:    float     = 0.0
+_SERIES_CACHE_TTL:    float     = 300.0   # re-probe every 5 min
+
+
+def discover_active_series() -> list[str]:
+    """
+    Probe all known series prefixes and return those with ≥1 open market.
+    Result is cached for 5 minutes. Logs discovered series at INFO level.
+    """
+    global _active_series_cache, _active_series_ts
+    now = time.time()
+    if _active_series_cache and now - _active_series_ts < _SERIES_CACHE_TTL:
+        return _active_series_cache
+
+    active = []
+    for series in _KNOWN_SPORTS_SERIES:
+        try:
+            data = _get("/markets", params={"status": "open", "series_ticker": series, "limit": 1})
+            if data.get("markets"):
+                active.append(series)
+        except Exception:
+            pass
+
+    _active_series_cache = active
+    _active_series_ts    = now
+    logger.info("[REST] discover_active_series: %d active → %s", len(active), active)
+    return active
+
+
 def get_sports_markets(limit: int = 100) -> list:
     """
     Fetch all open sports markets from Kalshi by querying known sports series.
@@ -226,17 +279,16 @@ def get_sports_markets(limit: int = 100) -> list:
 
     Returns list of dicts: ticker, yes_price, volume_dollars, title, expiry, series_ticker.
     """
-    SPORTS_SERIES = [
-        "KXATPMATCH",   # ATP Tennis Match Winner
-        "KXWTAMATCH",   # WTA Tennis Match Winner
-    ]
+    SPORTS_SERIES = discover_active_series()
 
     seen        = set()
     all_markets = []
 
     for series in SPORTS_SERIES:
         cursor = None
-        while True:
+        _page = 0
+        while _page < 5:  # safety cap: max 500 markets per series
+            _page += 1
             params = {
                 "status":        "open",
                 "series_ticker": series,
@@ -289,6 +341,97 @@ def get_sports_markets(limit: int = 100) -> list:
 
     logger.info("[REST] get_sports_markets: %d markets across %d series.",
                 len(all_markets), len(SPORTS_SERIES))
+    return all_markets
+
+
+# ---------------------------------------------------------------------------
+# Series exclusions — Atlas owns tennis; Syndicate must not overlap
+# ---------------------------------------------------------------------------
+
+EXCLUDED_SERIES = {
+    "KXATPMATCH",   # ATP Tennis Match Winner — owned by Atlas
+    "KXWTAMATCH",   # WTA Tennis Match Winner — owned by Atlas
+}
+
+
+def get_all_markets(max_pages: int = 100) -> list:
+    """
+    Fetch ALL open Kalshi markets — sports, crypto, politics, economics, weather, etc.
+    Tennis series (KXATPMATCH, KXWTAMATCH) are excluded — Atlas owns them.
+
+    Paginates GET /markets?status=open with no series filter.
+    Returns list of dicts: ticker, yes_price, volume_dollars, title, expiry, series_ticker.
+    max_pages: safety cap (100 pages × 200 per page = up to 20,000 markets).
+    """
+    seen        = set()
+    all_markets = []
+    cursor      = None
+
+    for page in range(max_pages):
+        params: dict = {"status": "open", "limit": 200}
+        if cursor:
+            params["cursor"] = cursor
+
+        data = _get("/markets", params=params)
+        if "error" in data:
+            logger.warning("[REST] get_all_markets page %d error: %s", page + 1, data.get("error"))
+            break
+
+        raw = data.get("markets", [])
+        for m in raw:
+            ticker = m.get("ticker", "")
+            if not ticker or ticker in seen:
+                continue
+            seen.add(ticker)
+
+            try:
+                yes_bid = float(m.get("yes_bid_dollars") or 0)
+                yes_ask = float(m.get("yes_ask_dollars") or 0)
+                if yes_bid > 0 and yes_ask > 0:
+                    yes_price = (yes_bid + yes_ask) / 2.0
+                else:
+                    yes_price = float(m.get("last_price_dollars") or 0)
+            except (ValueError, TypeError):
+                yes_price = 0.0
+
+            try:
+                volume_fp      = float(m.get("volume_fp") or m.get("volume_24h_fp") or 0)
+                volume_dollars = volume_fp * yes_price if yes_price > 0 else 0.0
+            except (ValueError, TypeError):
+                volume_dollars = 0.0
+
+            # Extract series_ticker: Kalshi list responses often omit this field.
+            # Derive it from event_ticker (e.g. "KXMLBTOTAL-26APR11COLSD" → "KXMLBTOTAL")
+            # or fall back to the ticker's own leading segment.
+            series_ticker = m.get("series_ticker", "") or ""
+            if not series_ticker:
+                event_ticker = m.get("event_ticker", "") or ""
+                if event_ticker:
+                    series_ticker = event_ticker.split("-")[0]
+                elif ticker:
+                    series_ticker = ticker.split("-")[0]
+
+            # Exclude series owned by other systems (Atlas owns tennis)
+            if any(ticker.upper().startswith(s) for s in EXCLUDED_SERIES):
+                continue
+            if series_ticker.upper() in EXCLUDED_SERIES:
+                continue
+
+            all_markets.append({
+                "ticker":         ticker,
+                "title":          m.get("title", ""),
+                "yes_price":      yes_price,
+                "volume_dollars": volume_dollars,
+                "expiry":         m.get("close_time") or m.get("expiration_time", ""),
+                "event_ticker":   m.get("event_ticker", ""),
+                "series_ticker":  series_ticker,
+            })
+
+        cursor = data.get("cursor")
+        if not cursor or len(raw) < 200:
+            break
+
+    logger.info("[REST] get_all_markets: %d total open markets fetched (tennis excluded).", len(all_markets))
     return all_markets
 
 

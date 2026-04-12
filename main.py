@@ -17,6 +17,7 @@ Shutdown:
 import os
 import sys
 import json
+import glob
 import time
 import signal
 import logging
@@ -76,6 +77,42 @@ def _load_config() -> dict:
 
 def _is_paper_mode() -> bool:
     return bool(_load_config().get("syndicate", {}).get("paper_mode", True))
+
+
+# ---------------------------------------------------------------------------
+# Startup trigger cleanup
+# ---------------------------------------------------------------------------
+
+def _cleanup_triggers() -> None:
+    """
+    On every restart, remove stale trigger files so the new session starts clean.
+    Keeps the single newest heartbeat; deletes all but newest new_market_* and velocity_* files.
+    """
+    _triggers = os.path.join(_SYNDICATE_ROOT, "triggers")
+    os.makedirs(_triggers, exist_ok=True)
+
+    removed = 0
+
+    # Patterns to clean — keep newest 1, delete the rest
+    for pattern in ("new_market_*.json", "velocity_*.json"):
+        files = sorted(glob.glob(os.path.join(_triggers, pattern)))
+        for f in files[:-1]:   # keep newest (last in sorted order)
+            try:
+                os.remove(f)
+                removed += 1
+            except OSError:
+                pass
+
+    # Remove all stale exit triggers so agents start fresh
+    for pattern in ("*_exit.json", "*_exit_decision.json", "*_exit_decision.txt"):
+        for f in glob.glob(os.path.join(_triggers, pattern)):
+            try:
+                os.remove(f)
+                removed += 1
+            except OSError:
+                pass
+
+    logger.info("[Startup] Triggers cleaned — %d stale files removed.", removed)
 
 
 # ---------------------------------------------------------------------------
@@ -208,15 +245,25 @@ def submit_to_gate(signal_data: dict) -> bool:
 
 def _gate_poll_loop():
     """
-    Polls triggers/decision.json every second.
-    When decision.json appears, reads it, acts on the decision, deletes it.
+    Polls triggers/ for decision files every second.
+
+    Two file patterns:
+      - decision.json          — panel flow (parse_decision.py output)
+      - {name}_decision.json   — agent flow (wake_syndicate.ps1 output)
+
     Runs as a daemon thread.
     """
     logger.info("[Gate] Poll thread started.")
+    _triggers = os.path.join(_SYNDICATE_ROOT, "triggers")
     while _running:
         try:
+            # Panel flow
             if os.path.exists(_DECISION_PATH):
                 _process_decision()
+            # Agent decision files — scan once per cycle
+            for fname in os.listdir(_triggers):
+                if fname.endswith("_decision.json") and fname != "decision.json":
+                    _process_agent_decision(os.path.join(_triggers, fname))
         except Exception as e:
             logger.error("[Gate] Poll error: %s", e)
         time.sleep(1.0)
@@ -251,6 +298,61 @@ def _process_decision():
         logger.info("[Gate] %s — BLOCK: discarding signal.", ticker)
 
     # Clear from pending queue
+    with _gate_pending_lock:
+        _gate_pending.pop(ticker, None)
+
+
+def _process_agent_decision(path: str) -> None:
+    """
+    Read and act on an agent decision file ({name}_decision.json).
+
+    TC responds with:
+      { "decision": "BUY"|"PASS", "side": "yes"|"no", "bet_size": float,
+        "entry_price": float, "target_exit_price": float, "reasoning": str, ...
+        "ticker": str (injected by wake_syndicate.ps1) }
+
+    Maps to _act_on_decision vocabulary:
+      BUY  → EXECUTE, bet_size → size, target_exit_price → target_price
+    """
+    try:
+        with open(path, encoding="utf-8-sig") as f:  # utf-8-sig handles BOM from PowerShell
+            decision = json.load(f)
+        os.remove(path)
+    except Exception as e:
+        logger.error("[Gate] Could not read/delete agent decision %s: %s", path, e)
+        return
+
+    # Normalise keys from TC response format to internal format
+    tc_verdict = decision.get("decision", "PASS").upper()
+    verdict    = "EXECUTE" if tc_verdict == "BUY" else tc_verdict  # BUY → EXECUTE
+
+    # bet_size from TC → size expected by _act_on_decision
+    if "size" not in decision:
+        decision["size"] = decision.get("bet_size", 2)
+
+    # target_exit_price → target_price
+    if "target_price" not in decision:
+        decision["target_price"] = decision.get("target_exit_price")
+
+    # agent_name from ticker file name if not present
+    if "agent_name" not in decision:
+        fname = os.path.basename(path)
+        decision["agent_name"] = fname.replace("_decision.json", "").upper()
+
+    ticker   = decision.get("ticker", "UNKNOWN")
+    size     = int(decision.get("size", 0) or 0)
+    edge_pct = float(decision.get("edge_pct", decision.get("conviction", 0)) or 0)
+
+    logger.info(
+        "[Gate] Agent decision: ticker=%s verdict=%s size=$%d",
+        ticker, verdict, size,
+    )
+
+    if verdict == "EXECUTE":
+        _act_on_decision(ticker, verdict, size, decision)
+    else:
+        logger.info("[Gate] %s — %s: discarding agent signal.", ticker, verdict)
+
     with _gate_pending_lock:
         _gate_pending.pop(ticker, None)
 
@@ -295,9 +397,17 @@ def _act_on_decision(ticker: str, verdict: str, size_dollars: int, decision: dic
         "reasoning":    reasoning,
     }
 
-    # Quantity: size_dollars / current_price, floored at 1
-    if current_price > 0:
-        quantity = max(1, int(size_dollars / current_price))
+    # Determine the actual contract price for the side we're buying
+    # For NO orders: contract price = 1 - yes_price (the NO market price)
+    # For YES orders: contract price = yes_price
+    if side.lower() == "no":
+        contract_price = max(0.01, 1.0 - current_price)
+    else:
+        contract_price = current_price
+
+    # Quantity: size_dollars / contract_price, floored at 1, capped at 99 (Kalshi limit)
+    if contract_price > 0:
+        quantity = min(99, max(1, int(size_dollars / contract_price)))
     else:
         quantity = 1
 
@@ -305,7 +415,7 @@ def _act_on_decision(ticker: str, verdict: str, size_dollars: int, decision: dic
 
     logger.info(
         "[Gate] Placing order: %s %s %dx @ %.3f | verdict=%s rule=%s",
-        side.upper(), ticker, quantity, current_price, verdict, rule_id,
+        side.upper(), ticker, quantity, contract_price, verdict, rule_id,
     )
 
     state.add_pending(ticker)
@@ -314,7 +424,7 @@ def _act_on_decision(ticker: str, verdict: str, size_dollars: int, decision: dic
             ticker=ticker,
             side=side,
             quantity=quantity,
-            price=current_price,
+            price=contract_price,
             rule=rule,
             rule_id=rule_id,
             agent_name=agent_name,
@@ -411,6 +521,9 @@ if __name__ == "__main__":
     paper_tag = "[PAPER MODE] " if _is_paper_mode() else "[LIVE MODE] "
     logger.info("%sThe Syndicate starting up...", paper_tag)
 
+    # ── 0. Startup cleanup ────────────────────────────────────────────────────
+    _cleanup_triggers()
+
     # ── 1. Rule loader ────────────────────────────────────────────────────────
     rule_loader.start()
     logger.info("[Main] Rule loader started.")
@@ -424,6 +537,20 @@ if __name__ == "__main__":
     # ── 3. Scan engine ────────────────────────────────────────────────────────
     _scan_engine.start()
     logger.info("[Main] Scan engine started.")
+
+    # ── 3a. Register agents with scalper + outcome_reporter ───────────────────
+    # scan_engine._agents is populated during start(); register them now.
+    try:
+        _agents = getattr(_scan_engine, "_agents", [])
+        if _agents:
+            _scalper_engine.register_agents(_agents)
+            from core.outcome_reporter import outcome_reporter as _or
+            _or.register_agents(_agents)
+            logger.info("[Main] Agents registered with scalper and outcome_reporter.")
+        else:
+            logger.warning("[Main] No agents found in scan_engine — skipping registration.")
+    except Exception as _reg_err:
+        logger.error("[Main] Agent registration failed: %s", _reg_err)
 
     # ── 4. Connectors ─────────────────────────────────────────────────────────
     _load_connectors()
@@ -456,7 +583,19 @@ if __name__ == "__main__":
     )
     _status_thread.start()
 
-    # ── 7. Main keep-alive loop ───────────────────────────────────────────────
+    # ── 7. Telegram startup health check ────────────────────────────────────
+    try:
+        import notifications.telegram as _tg
+        mode_tag = "PAPER" if _is_paper_mode() else "LIVE"
+        _tg.post(
+            f"Online [{mode_tag}] — scanners running, WS {'connected' if _kalshi_ws else 'disabled'}, "
+            f"gate active",
+            "✅",
+        )
+    except Exception as _tg_err:
+        logger.warning("[Main] Telegram startup notification failed: %s", _tg_err)
+
+    # ── 8. Main keep-alive loop ───────────────────────────────────────────────
     _print_status()
     logger.info("%sAll components running. Press Ctrl-C to stop.", paper_tag)
 

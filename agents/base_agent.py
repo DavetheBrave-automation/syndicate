@@ -294,22 +294,45 @@ class BaseAgent(ABC):
             datetime.now(timezone.utc) + timedelta(minutes=5)
         ).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+        # YES side: profits if price settles ABOVE threshold ($1 payout)
+        # NO side:  profits if price settles BELOW threshold ($1 payout)
+        # YES ask  ≈ 1.0 - market.no_bid (price to buy YES contracts)
+        # NO price ≈ 1.0 - market.yes_price (price to buy NO contracts)
+        yes_ask_est    = round(1.0 - market.no_bid, 4)
+        no_price_est   = round(1.0 - market.yes_price, 4)
+
+        if side.lower() == "yes":
+            contract_cost  = entry_price  # cost per contract buying YES
+            side_expl      = (
+                f"YES: profits if price ABOVE strike "
+                f"(entry={entry_price:.2f}, yes_ask≈{yes_ask_est:.2f})"
+            )
+        else:
+            contract_cost  = round(1.0 - entry_price, 4) if entry_price > 0 else no_price_est
+            side_expl      = (
+                f"NO: profits if price BELOW strike "
+                f"(NO costs≈{no_price_est:.2f}, YES currently at {market.yes_price:.2f})"
+            )
+
         return {
             "agent": self.name,
             "signal": {
-                "ticker":            market.ticker,
-                "contract_class":    market.contract_class,
-                "conviction_tier":   conviction_tier,
-                "edge_pct":          edge_pct,
-                "side":              side,
-                "entry_price":       entry_price,
-                "entry_ask":         round(1.0 - market.no_bid, 4),
-                "spread_cents":      round(market.spread * 100, 1),
-                "target_price":      target_price,
-                "stop_price":        stop_price,
-                "max_size_dollars":  max_size_dollars,
-                "agent_name":        self.name,
-                "reasoning":         reasoning,
+                "ticker":                    market.ticker,
+                "contract_class":            market.contract_class,
+                "conviction_tier":           conviction_tier,
+                "edge_pct":                  edge_pct,
+                "side":                      side,
+                "entry_price":               entry_price,
+                "yes_ask":                   yes_ask_est,
+                "no_price":                  no_price_est,
+                "contract_cost":             contract_cost,
+                "contract_side_explanation": side_expl,
+                "spread_cents":              round(market.spread * 100, 1),
+                "target_price":              target_price,
+                "stop_price":                stop_price,
+                "max_size_dollars":          max_size_dollars,
+                "agent_name":                self.name,
+                "reasoning":                 reasoning,
             },
             "market": {
                 "ticker":             market.ticker,
@@ -370,6 +393,179 @@ class BaseAgent(ABC):
             except OSError:
                 pass
             return False
+
+    # =========================================================================
+    # Exit review — called by scalper every 30s on open positions
+    # =========================================================================
+
+    # =========================================================================
+    # Settlement hold check
+    # =========================================================================
+
+    def _settlement_hold_check(self, position, market) -> tuple:
+        """
+        Returns (should_exit: bool, reason: str).
+        HARD RULE: Never hold to settlement unless WINNING with high confidence.
+        """
+        if market is None:
+            return False, "no market data"
+
+        minutes_remaining = market.days_to_settlement * 1440.0
+        entry_dollars = position.entry_price / 100.0
+
+        if position.side == "yes":
+            current_price  = market.yes_price
+            unrealized_pnl = (current_price - entry_dollars) * position.quantity
+        else:
+            no_entry       = (100 - position.entry_price) / 100.0
+            no_current     = 1.0 - market.yes_price
+            unrealized_pnl = (no_current - no_entry) * position.quantity
+
+        entry_cost = entry_dollars * position.quantity
+        pnl_pct    = unrealized_pnl / entry_cost if entry_cost > 0 else 0.0
+
+        if minutes_remaining > 30:
+            return False, "plenty of time"
+
+        if minutes_remaining < 30 and pnl_pct < 0:
+            return True, "losing with < 30 min — exit"
+
+        if minutes_remaining < 15:
+            if position.side == "yes" and market.yes_price > 0.75:
+                return False, "YES clearly winning — hold"
+            elif position.side == "no" and market.yes_price < 0.25:
+                return False, "NO clearly winning — hold"
+            else:
+                return True, "not clearly winning with < 15 min — exit before settlement"
+
+        return False, "monitoring"
+
+    def _calc_pnl_pct(self, position, market) -> float:
+        """Calculate unrealized P&L as a fraction of entry cost."""
+        if market is None:
+            return 0.0
+        entry_dollars = position.entry_price / 100.0
+        entry_cost = entry_dollars * position.quantity
+        if entry_cost <= 0:
+            return 0.0
+        if position.side == "yes":
+            unrealized_pnl = (market.yes_price - entry_dollars) * position.quantity
+        else:
+            no_entry       = (100 - position.entry_price) / 100.0
+            no_current     = 1.0 - market.yes_price
+            unrealized_pnl = (no_current - no_entry) * position.quantity
+        return unrealized_pnl / entry_cost
+
+    def _get_minutes_to_settlement(self, market) -> float:
+        if market is None:
+            return 9999.0
+        return market.days_to_settlement * 1440.0
+
+    def _is_first_half(self, game) -> bool:
+        """Returns True if the game is in its first set/half (normal volatility — don't stop early)."""
+        if game is None:
+            return False
+        try:
+            set_scores     = getattr(game, "set_scores", None) or []
+            completed_sets = len(set_scores) - 1 if set_scores else 0
+            return completed_sets == 0
+        except Exception:
+            return False
+
+    # =========================================================================
+    # should_exit — fast pre-check for every open position (called every 30s)
+    # =========================================================================
+
+    def should_exit(self, position, market, game=None) -> bool:
+        """
+        Fast pre-check: should TC be woken for an exit decision?
+        No file I/O. Returns True only when a threshold is crossed.
+
+        Thresholds (OR conditions — any triggers a TC review):
+          - Settlement < 5 min: always flag
+          - Settlement < 10 min AND P&L < 0: losing near settlement
+          - P&L >= +25%: TC decides whether to take profit
+          - P&L <= -25% AND held > 10 min: TC decides stop
+          - Settlement hold check triggers
+        First-half losses below -40% suppressed (normal tennis volatility).
+        """
+        pnl_pct        = self._calc_pnl_pct(position, market)
+        minutes_to_s   = self._get_minutes_to_settlement(market)
+        minutes_held   = (time.time() - position.entry_time) / 60.0
+
+        # Near settlement — always flag
+        if minutes_to_s < 5:
+            return True
+
+        # Losing near settlement — must decide
+        if minutes_to_s < 10 and pnl_pct < 0:
+            return True
+
+        # Profit target: up 25% — TC decides whether to take profits
+        if pnl_pct >= 0.25:
+            return True
+
+        # Stop loss: down 25% after 10 min held
+        if pnl_pct <= -0.25 and minutes_held > 10:
+            return True
+
+        # Settlement hold check
+        should, _ = self._settlement_hold_check(position, market)
+        if should:
+            return True
+
+        # NEVER flag first-half/set losses — normal volatility
+        if game and self._is_first_half(game) and pnl_pct > -0.40:
+            return False
+
+        return False
+
+    def build_exit_signal(self, position, market, game=None) -> dict:
+        """Build the context dict written to {name}_exit.json for TC review."""
+        import time
+        entry_dollars = position.entry_price / 100.0
+        current_price = market.yes_price if market else entry_dollars
+        hold_seconds  = time.time() - position.entry_time
+
+        if position.side == "yes":
+            unrealized_pnl = (current_price - entry_dollars) * position.quantity
+        else:
+            no_entry   = (100 - position.entry_price) / 100.0
+            no_current = 1.0 - current_price
+            unrealized_pnl = (no_current - no_entry) * position.quantity
+
+        mem = self.load_memory()
+
+        def _game_summary(g) -> str:
+            if g is None:
+                return "no live game data"
+            return str(g)
+
+        return {
+            "agent":     self.name,
+            "type":      "exit_review",
+            "expires_at": (
+                datetime.now(timezone.utc) + timedelta(minutes=3)
+            ).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "position": {
+                "ticker":           position.ticker,
+                "side":             position.side,
+                "quantity":         position.quantity,
+                "entry_price_cents": int(position.entry_price),
+                "entry_price_dollars": entry_dollars,
+                "hold_minutes":     round(hold_seconds / 60, 1),
+            },
+            "market": {
+                "current_price":       round(current_price, 4),
+                "unrealized_pnl":      round(unrealized_pnl, 4),
+                "days_to_settlement":  market.days_to_settlement if market else 0.0,
+                "minutes_to_settlement": round(
+                    (market.days_to_settlement * 1440) if market else 0.0, 1
+                ),
+            },
+            "game_state":      _game_summary(game),
+            "memory_rules":    mem.get("rules", []),
+        }
 
     # =========================================================================
     # Outcome

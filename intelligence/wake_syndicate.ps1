@@ -20,6 +20,7 @@ $PromptsDir             = Join-Path $SyndicateRoot "tools\prompts"
 $PanelPromptPath        = Join-Path $IntelDir "prompts\panel_prompt.txt"
 $BaseDecisionPromptPath = Join-Path $PromptsDir "base_decision_prompt.txt"
 $PostmortemPromptPath   = Join-Path $PromptsDir "postmortem_prompt.txt"
+$ExitPromptPath         = Join-Path $PromptsDir "exit_prompt.txt"
 $PendingPath            = Join-Path $TriggersDir "pending_signal.json"
 $AnalysisPath           = Join-Path $IntelDir "tc_analysis.txt"
 $ParseScriptPath        = Join-Path $IntelDir "parse_decision.py"
@@ -30,7 +31,7 @@ if (-not (Test-Path $TriggersDir)) {
 }
 
 # Load all three prompt templates at startup -- fail fast if any missing
-foreach ($P in @($PanelPromptPath, $BaseDecisionPromptPath, $PostmortemPromptPath)) {
+foreach ($P in @($PanelPromptPath, $BaseDecisionPromptPath, $PostmortemPromptPath, $ExitPromptPath)) {
     if (-not (Test-Path $P)) {
         Write-Error ("[Syndicate Gate] Prompt not found: " + $P)
         exit 1
@@ -40,6 +41,7 @@ foreach ($P in @($PanelPromptPath, $BaseDecisionPromptPath, $PostmortemPromptPat
 $PanelPrompt        = Get-Content $PanelPromptPath        -Raw -Encoding UTF8
 $BaseDecisionPrompt = Get-Content $BaseDecisionPromptPath -Raw -Encoding UTF8
 $PostmortemPrompt   = Get-Content $PostmortemPromptPath   -Raw -Encoding UTF8
+$ExitPrompt         = Get-Content $ExitPromptPath         -Raw -Encoding UTF8
 
 Write-Host "[Syndicate Gate] Started. Watching $TriggersDir for signals..."
 Write-Host "[Syndicate Gate] Root: $SyndicateRoot"
@@ -136,7 +138,11 @@ function Invoke-TC {
     Write-Host ("[Syndicate Gate] Invoking TC for " + $Label + " (15-30s)...")
     $Output = $null
     try {
-        $Output = & claude --print --output-format json -p $Prompt 2>&1
+        # Write prompt to temp file — avoids Windows CLI arg length limit / newline truncation
+        $TmpFile = [System.IO.Path]::GetTempFileName()
+        [System.IO.File]::WriteAllText($TmpFile, $Prompt, [System.Text.Encoding]::UTF8)
+        $Output = Get-Content $TmpFile -Raw | & claude --print --output-format json 2>&1
+        Remove-Item $TmpFile -Force -ErrorAction SilentlyContinue
     } catch {
         Write-Warning ("[Syndicate Gate] claude CLI failed for " + $Label + ": $_")
         return $null
@@ -191,11 +197,45 @@ function Invoke-AgentSignal {
     $RecentTradesJson = ConvertTo-JsonSafe $Obj.recent_trades
     $SignalJson       = ConvertTo-JsonSafe $Obj.signal -Default "{}"
 
+    # ── Debate: cross-agent context for HIGH_CONVICTION signals ──────────────
+    # Check if any other agent has evaluated the same ticker in the last 5 min.
+    # Inject their signal reasoning as "Other agent views" so TC has cross-agent context.
+    $OtherAgentViews = ""
+    $SignalTicker2 = if ($Obj.signal -and $Obj.signal.PSObject.Properties["ticker"]) { $Obj.signal.ticker } else { "" }
+    $ConvictionTier = if ($Obj.signal -and $Obj.signal.PSObject.Properties["conviction_tier"]) { $Obj.signal.conviction_tier } else { "" }
+    if ($ConvictionTier -eq "HIGH_CONVICTION" -and $SignalTicker2 -ne "") {
+        $FiveMinAgo = (Get-Date).AddMinutes(-5)
+        $OtherSignalFiles = Get-ChildItem -Path $TriggersDir -Filter "*_signal.json" `
+            -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne $File.Name -and $_.LastWriteTime -ge $FiveMinAgo }
+        $OtherViews = @()
+        foreach ($OtherFile in $OtherSignalFiles) {
+            try {
+                $OtherRaw = Get-Content $OtherFile.FullName -Raw -Encoding UTF8
+                $OtherObj = $OtherRaw | ConvertFrom-Json
+                $OtherTicker = if ($OtherObj.signal -and $OtherObj.signal.PSObject.Properties["ticker"]) { $OtherObj.signal.ticker } else { "" }
+                if ($OtherTicker -eq $SignalTicker2) {
+                    $OtherAgent = ($OtherFile.Name -replace "_signal\.json$", "").ToUpper()
+                    $OtherSide  = if ($OtherObj.signal -and $OtherObj.signal.PSObject.Properties["side"]) { $OtherObj.signal.side } else { "?" }
+                    $OtherEdge  = if ($OtherObj.signal -and $OtherObj.signal.PSObject.Properties["edge_pct"]) { $OtherObj.signal.edge_pct } else { "?" }
+                    $OtherReas  = if ($OtherObj.signal -and $OtherObj.signal.PSObject.Properties["reasoning"]) { $OtherObj.signal.reasoning } else { "no reasoning" }
+                    $OtherViews += "$OtherAgent says $OtherSide (edge=$OtherEdge%): $OtherReas"
+                }
+            } catch { }
+        }
+        if ($OtherViews.Count -gt 0) {
+            $OtherAgentViews = "`n`n============================================================`nOTHER AGENT VIEWS ON $SignalTicker2 (last 5 min)`n============================================================`n" + ($OtherViews -join "`n")
+        }
+    }
+
     $Prompt = $BaseDecisionPrompt
     $Prompt = $Prompt.Replace("{AGENT_NAME}", $AgentName)
     $Prompt = $Prompt.Replace("{MEMORY_RULES_INJECTED_HERE}", $MemoryRulesJson)
     $Prompt = $Prompt.Replace("{RECENT_TRADES_INJECTED_HERE}", $RecentTradesJson)
     $Prompt = $Prompt.Replace("{SIGNAL_JSON_INJECTED_HERE}", $SignalJson)
+    if ($OtherAgentViews -ne "") {
+        $Prompt = $Prompt + $OtherAgentViews
+    }
 
     # Call TC
     $TcText = Invoke-TC -Prompt $Prompt -Label $AgentName
@@ -215,13 +255,32 @@ function Invoke-AgentSignal {
     }
 
     # Write decision file for main.py
+    # Inject signal fields — TC may echo the other side; always use ours.
+    $SignalTicker    = if ($Obj.signal -and $Obj.signal.PSObject.Properties["ticker"])         { $Obj.signal.ticker }         else { "?" }
+    $SignalClass     = if ($Obj.signal -and $Obj.signal.PSObject.Properties["contract_class"]) { $Obj.signal.contract_class } else { "SWING" }
+    $SignalAgentName = if ($Obj.signal -and $Obj.signal.PSObject.Properties["agent_name"])     { $Obj.signal.agent_name }     else { $AgentName }
+    $SignalStopPrice = if ($Obj.signal -and $Obj.signal.PSObject.Properties["stop_price"])     { $Obj.signal.stop_price }     else { $null }
+    $SignalEdgePct   = if ($Obj.signal -and $Obj.signal.PSObject.Properties["edge_pct"])       { $Obj.signal.edge_pct }       else { 0.0 }
+    try {
+        $DecisionParsed = $DecisionJson | ConvertFrom-Json -ErrorAction SilentlyContinue
+        if ($DecisionParsed) {
+            $DecisionParsed | Add-Member -NotePropertyName "ticker"         -NotePropertyValue $SignalTicker    -Force
+            $DecisionParsed | Add-Member -NotePropertyName "contract_class" -NotePropertyValue $SignalClass     -Force
+            $DecisionParsed | Add-Member -NotePropertyName "agent_name"     -NotePropertyValue $SignalAgentName -Force
+            $DecisionParsed | Add-Member -NotePropertyName "edge_pct"       -NotePropertyValue $SignalEdgePct   -Force
+            if ($null -ne $SignalStopPrice) {
+                $DecisionParsed | Add-Member -NotePropertyName "stop_price" -NotePropertyValue $SignalStopPrice -Force
+            }
+            $DecisionJson = $DecisionParsed | ConvertTo-Json -Depth 10 -Compress
+        }
+    } catch { }
+
     $DecisionPath = Join-Path $TriggersDir ($AgentName.ToLower() + "_decision.json")
     try {
         Set-Content -Path $DecisionPath -Value $DecisionJson -Encoding UTF8
         Write-Host ("[Syndicate Gate] Decision written: " + ($AgentName.ToLower() + "_decision.json"))
         $DecisionObj = $DecisionJson | ConvertFrom-Json -ErrorAction SilentlyContinue
         $DecisionStr = if ($DecisionObj -and $DecisionObj.PSObject.Properties["decision"]) { $DecisionObj.decision } else { "?" }
-        $SignalTicker = if ($Obj.signal -and $Obj.signal.PSObject.Properties["ticker"]) { $Obj.signal.ticker } else { "?" }
         Post-Discord "TC Decision: $AgentName $SignalTicker → $DecisionStr"
         Post-Telegram "TC: $AgentName $SignalTicker → $DecisionStr"
     } catch {
@@ -313,7 +372,97 @@ function Invoke-Postmortem {
 }
 
 # ---------------------------------------------------------------------------
-# Main loop -- priority: panel > agent_signal > postmortem
+# Code path 4: Exit review -- {name}_exit.json
+#
+# Agent calls build_exit_signal() and writes triggers/{name}_exit.json.
+# TC reviews position context and decides EXIT or HOLD.
+# Written to triggers/{name}_exit_decision.json for scalper to act on.
+# ---------------------------------------------------------------------------
+function Invoke-ExitReview {
+    param([System.IO.FileInfo]$File)
+
+    $ExitPath  = $File.FullName
+    $AgentName = ($File.Name -replace "_exit\.json$", "").ToUpper()
+
+    Write-Host ("[Syndicate Gate] Exit review: " + $File.Name + " | agent=" + $AgentName)
+
+    $Raw = $null
+    $Obj = $null
+    try {
+        $Raw = Get-Content $ExitPath -Raw -Encoding UTF8
+        $Obj = $Raw | ConvertFrom-Json
+    } catch {
+        Write-Warning ("[Syndicate Gate] Cannot read exit file " + $File.Name + ": $_")
+        Remove-Item $ExitPath -Force -ErrorAction SilentlyContinue
+        return
+    }
+
+    # Check expiry
+    $ExpiresAt = $null
+    try { $ExpiresAt = [DateTime]::Parse($Obj.expires_at).ToUniversalTime() } catch { }
+    if ($ExpiresAt -and [DateTime]::UtcNow -gt $ExpiresAt) {
+        Write-Host ("[Syndicate Gate] Exit review expired (" + $AgentName + ") -- dropping")
+        Remove-Item $ExitPath -Force -ErrorAction SilentlyContinue
+        return
+    }
+
+    $PositionJson = ConvertTo-JsonSafe $Obj.position  -Default "{}"
+    $MarketJson   = ConvertTo-JsonSafe $Obj.market     -Default "{}"
+    $GameState    = if ($Obj.game_state) { $Obj.game_state } else { "no live game data" }
+    $EntryReason  = if ($Obj.entry_reasoning) { $Obj.entry_reasoning } else { "not recorded" }
+    $MemRulesJson = ConvertTo-JsonSafe $Obj.memory_rules
+
+    $Prompt = $ExitPrompt
+    $Prompt = $Prompt.Replace("{AGENT_NAME}",      $AgentName)
+    $Prompt = $Prompt.Replace("{POSITION_CONTEXT}", $PositionJson)
+    $Prompt = $Prompt.Replace("{MARKET_CONTEXT}",   $MarketJson)
+    $Prompt = $Prompt.Replace("{GAME_STATE}",       $GameState)
+    $Prompt = $Prompt.Replace("{ENTRY_REASONING}",  $EntryReason)
+    $Prompt = $Prompt.Replace("{MEMORY_RULES}",     $MemRulesJson)
+
+    $TcText = Invoke-TC -Prompt $Prompt -Label ("exit:" + $AgentName)
+    if ([string]::IsNullOrWhiteSpace($TcText)) {
+        Write-Warning ("[Syndicate Gate] TC empty response for exit " + $AgentName + " -- dropping")
+        Remove-Item $ExitPath -Force -ErrorAction SilentlyContinue
+        return
+    }
+
+    $DecisionJson = Get-FirstJson -Text $TcText
+    if (-not $DecisionJson) {
+        Write-Warning ("[Syndicate Gate] No JSON in TC exit response for " + $AgentName)
+        Remove-Item $ExitPath -Force -ErrorAction SilentlyContinue
+        return
+    }
+
+    # Inject ticker from position context
+    $Ticker = if ($Obj.position -and $Obj.position.PSObject.Properties["ticker"]) { $Obj.position.ticker } else { "?" }
+    try {
+        $DecisionParsed = $DecisionJson | ConvertFrom-Json -ErrorAction SilentlyContinue
+        if ($DecisionParsed) {
+            $DecisionParsed | Add-Member -NotePropertyName "ticker" -NotePropertyValue $Ticker -Force
+            $DecisionParsed | Add-Member -NotePropertyName "agent"  -NotePropertyValue $AgentName -Force
+            $DecisionJson = $DecisionParsed | ConvertTo-Json -Depth 10 -Compress
+        }
+    } catch { }
+
+    $DecisionPath = Join-Path $TriggersDir ($AgentName.ToLower() + "_exit_decision.json")
+    try {
+        Set-Content -Path $DecisionPath -Value $DecisionJson -Encoding UTF8
+        $DecisionObj = $DecisionJson | ConvertFrom-Json -ErrorAction SilentlyContinue
+        $DecStr = if ($DecisionObj -and $DecisionObj.PSObject.Properties["decision"]) { $DecisionObj.decision } else { "?" }
+        Write-Host ("[Syndicate Gate] Exit decision: " + $AgentName + " " + $Ticker + " → " + $DecStr)
+        Post-Telegram "EXIT REVIEW: $AgentName $Ticker → $DecStr"
+    } catch {
+        Write-Warning ("[Syndicate Gate] Failed to write exit decision: $_")
+    }
+
+    Set-Content -Path $AnalysisPath -Value $TcText -Encoding UTF8
+    Remove-Item $ExitPath -Force -ErrorAction SilentlyContinue
+    Write-Host ("[Syndicate Gate] Exit review done for " + $AgentName + ".")
+}
+
+# ---------------------------------------------------------------------------
+# Main loop -- priority: panel > agent_signal > postmortem > exit_review
 # ---------------------------------------------------------------------------
 while ($true) {
     Start-Sleep -Milliseconds 500
@@ -395,6 +544,14 @@ while ($true) {
         -ErrorAction SilentlyContinue
     if ($PostmortemFiles) {
         Invoke-Postmortem -File $PostmortemFiles[0]
+        continue
+    }
+
+    # ── Code path 4: Exit review -- {name}_exit.json ──────────────────────
+    $ExitFiles = Get-ChildItem -Path $TriggersDir -Filter "*_exit.json" `
+        -ErrorAction SilentlyContinue
+    if ($ExitFiles) {
+        Invoke-ExitReview -File $ExitFiles[0]
         continue
     }
 }

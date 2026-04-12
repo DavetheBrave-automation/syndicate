@@ -88,8 +88,21 @@ class OutcomeReporter:
     """
 
     def __init__(self):
-        self._db_lock = threading.Lock()
+        self._db_lock   = threading.Lock()
+        self._agents: dict = {}   # agent_name → agent instance (populated via register_agents)
         self.init_db()
+
+    # -----------------------------------------------------------------------
+    # Agent registry
+    # -----------------------------------------------------------------------
+
+    def register_agents(self, agents: list) -> None:
+        """Register agent instances so on_outcome() can be dispatched after each trade."""
+        self._agents = {a.name: a for a in agents}
+        logger.info(
+            "[OutcomeReporter] Agent registry: %s",
+            list(self._agents.keys()),
+        )
 
     # -----------------------------------------------------------------------
     # DB setup
@@ -238,9 +251,27 @@ class OutcomeReporter:
         except Exception as e:
             logger.warning("%s[OutcomeReporter] Trigger write failed: %s", pfx, e)
 
-        # -- Discord notification (non-blocking) ------------------------------
+        # -- Dispatch on_outcome to originating agent (non-blocking) ----------
+        agent_name = getattr(position, "agent_name", None)
+        if agent_name and agent_name in self._agents:
+            outcome_dict = {
+                "pnl":          pnl,
+                "ticker":       position.ticker,
+                "exit_reason":  exit_reason,
+                "exit_price":   exit_price,
+                "hold_seconds": hold_seconds,
+                "side":         position.side,
+                "quantity":     position.quantity,
+            }
+            self._fire(self._agents[agent_name].on_outcome, outcome_dict)
+
+        # -- Discord + Telegram notification (non-blocking) ------------------
         self._fire(
             self._post_discord_exit,
+            position, exit_price, exit_reason, pnl, hold_seconds, pfx,
+        )
+        self._fire(
+            self._post_telegram_exit,
             position, exit_price, exit_reason, pnl, hold_seconds, pfx,
         )
 
@@ -306,6 +337,31 @@ class OutcomeReporter:
             )
         except Exception as e:
             logger.warning("%s[OutcomeReporter] Discord post failed: %s", pfx, e)
+
+    def _post_telegram_exit(self, position, exit_price: float, exit_reason: str,
+                            pnl: float, hold_seconds: float, pfx: str):
+        try:
+            import notifications.telegram as telegram
+        except ImportError:
+            return
+        try:
+            entry_dollars = int(position.entry_price) / 100.0
+            pnl_sign = "+" if pnl >= 0 else ""
+            hold_str = f"{int(hold_seconds // 60)}m {int(hold_seconds % 60)}s"
+            outcome = "WIN" if pnl >= 0 else "LOSS"
+            agent = getattr(position, "agent_name", None) or "unknown"
+            cls   = getattr(position, "contract_class", None) or ""
+            emoji = "✅" if pnl >= 0 else "❌"
+            telegram.post(
+                f"{pfx}EXIT | {outcome} | {pnl_sign}${pnl:.2f} | {position.ticker}\n"
+                f"{position.side.upper()} {position.quantity}x | "
+                f"Entry: ${entry_dollars:.2f} → Exit: ${exit_price:.2f}\n"
+                f"Hold: {hold_str} | Agent: {agent} | {cls}\n"
+                f"Reason: {exit_reason}",
+                emoji,
+            )
+        except Exception as e:
+            logger.warning("%s[OutcomeReporter] Telegram post failed: %s", pfx, e)
 
     # -----------------------------------------------------------------------
     # Query helpers

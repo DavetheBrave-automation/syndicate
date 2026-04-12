@@ -130,6 +130,9 @@ class ScalperEngine:
         self._running: bool = False
         self._exit_thread: Optional[threading.Thread] = None
 
+        # Agent registry: agent_name → agent instance (populated via register_agents)
+        self._agent_registry: dict = {}
+
         logger.info(
             "[ScalperEngine] Initialized. max_hold_minutes=%d",
             self._max_hold_minutes,
@@ -389,13 +392,121 @@ class ScalperEngine:
     # Internal: time-exit loop (runs in daemon thread, every 30s)
     # -----------------------------------------------------------------------
 
+    # -----------------------------------------------------------------------
+    # Agent registry — populated by main.py / scan_engine after agents load
+    # -----------------------------------------------------------------------
+
+    def register_agents(self, agents: list) -> None:
+        """
+        Register agent instances so _check_agent_exits can call should_exit().
+        agents: list of BaseAgent instances (ACE, AXIOM, etc.)
+        """
+        self._agent_registry = {a.name: a for a in agents}
+        logger.info(
+            "[ScalperEngine] Agent registry populated: %s",
+            list(self._agent_registry.keys()),
+        )
+
+    def _get_agent_for_position(self, position):
+        """Return the agent instance that created this position, or None."""
+        name = getattr(position, "agent_name", None)
+        if not name:
+            return None
+        return self._agent_registry.get(name.upper())
+
+    def _get_game_for_ticker(self, ticker: str):
+        """Try to find a live tennis game matching this ticker. Returns None if not found."""
+        try:
+            from connectors.tennis_ws import match_game_to_ticker  # noqa: PLC0415
+            return match_game_to_ticker(ticker)
+        except Exception:
+            return None
+
+    def _write_exit_trigger(self, agent, position, market, game=None) -> None:
+        """
+        Write triggers/{agent_name}_exit.json.
+        Uses agent.build_exit_signal() for the full context payload.
+        wake_syndicate.ps1 picks it up and wakes TC.
+        """
+        import os, json
+        _SYNDICATE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        triggers_dir = os.path.join(_SYNDICATE_ROOT, "triggers")
+        os.makedirs(triggers_dir, exist_ok=True)
+
+        filename = f"{agent.name.lower()}_exit.json"
+        path     = os.path.join(triggers_dir, filename)
+        tmp_path = path + ".tmp"
+
+        try:
+            payload = agent.build_exit_signal(position, market, game)
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+            os.replace(tmp_path, path)
+            logger.info(
+                "[ScalperEngine] Exit trigger written: %s | ticker=%s",
+                filename, position.ticker,
+            )
+        except Exception as exc:
+            logger.error(
+                "[ScalperEngine] _write_exit_trigger failed for %s: %s",
+                position.ticker, exc,
+            )
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+    def _check_agent_exits(self) -> None:
+        """
+        Called every 30s from _time_exit_loop.
+        For each open position, ask its originating agent whether TC should review an exit.
+        Writes triggers/{agent_name}_exit.json when threshold is crossed.
+        Skips tickers that already have a pending exit trigger.
+        """
+        import os
+        _SYNDICATE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        triggers_dir = os.path.join(_SYNDICATE_ROOT, "triggers")
+
+        positions = state.get_all_positions()
+        for ticker, position in positions.items():
+            agent = self._get_agent_for_position(position)
+            if agent is None:
+                continue
+
+            # Skip if an exit trigger is already pending for this agent
+            pending_exit = os.path.join(
+                triggers_dir, f"{agent.name.lower()}_exit.json"
+            )
+            if os.path.exists(pending_exit):
+                continue
+
+            market = state.get_market(ticker)
+            game   = self._get_game_for_ticker(ticker)
+
+            try:
+                if agent.should_exit(position, market, game):
+                    logger.info(
+                        "[ScalperEngine] Agent %s flagged %s for TC exit review",
+                        agent.name, ticker,
+                    )
+                    self._write_exit_trigger(agent, position, market, game)
+            except Exception as exc:
+                logger.error(
+                    "[ScalperEngine] _check_agent_exits error for %s/%s: %s",
+                    agent.name, ticker, exc,
+                )
+
     def _time_exit_loop(self):
-        """Daemon thread body. Calls _check_time_exits() every 30 seconds."""
+        """Daemon thread body. Calls _check_time_exits() and _check_agent_exits() every 30 seconds."""
         while self._running:
             try:
                 self._check_time_exits()
             except Exception as exc:
                 logger.error("[ScalperEngine] _check_time_exits error: %s", exc, exc_info=True)
+            try:
+                self._check_agent_exits()
+            except Exception as exc:
+                logger.error("[ScalperEngine] _check_agent_exits error: %s", exc, exc_info=True)
             time.sleep(_TIME_EXIT_INTERVAL)
 
     def _check_time_exits(self):
