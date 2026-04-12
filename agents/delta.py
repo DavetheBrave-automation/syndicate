@@ -66,8 +66,9 @@ def _build_search_query(market) -> str:
 
 
 class DeltaAgent(BaseAgent):
-    name   = "DELTA"
-    domain = "all"
+    name                  = "DELTA"
+    domain                = "all"
+    MAX_SIGNALS_PER_CYCLE = 3   # Top 3 by edge_pct — prevents BTC ladder spam
 
     seed_rules = [
         "Find contracts where Kalshi price differs significantly from external consensus",

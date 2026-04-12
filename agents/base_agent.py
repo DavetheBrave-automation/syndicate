@@ -122,6 +122,11 @@ class BaseAgent(ABC):
     # Override to 300 in fast-signal agents (BLITZ, TIDE).
     EVAL_COOLDOWN_SECONDS: float = 1800.0
 
+    # Max signals emitted per heartbeat cycle. None = unlimited.
+    # Concurrent evaluate() threads buffer here; top N by edge_pct are flushed
+    # after a short collection window. DELTA=3, SHADOW=2.
+    MAX_SIGNALS_PER_CYCLE: Optional[int] = None
+
     # ── Memory lock (one per instance) ───────────────────────────────────────
     # _benched_cache is a plain bool — GIL makes single bool read atomic.
     # _bench_check_ts tracks monotonic time of last bench recheck.
@@ -131,6 +136,11 @@ class BaseAgent(ABC):
         self._benched_cache: bool = False
         self._bench_check_ts: float = 0.0  # monotonic time of last bench recheck
         self._eval_cooldowns: dict = {}     # cooldown_key → last eval timestamp
+
+        # Signal cap: buffer + flush timer (only used when MAX_SIGNALS_PER_CYCLE set)
+        self._cycle_buffer: list = []
+        self._cycle_lock: threading.Lock = threading.Lock()
+        self._cycle_flush_timer: Optional[threading.Timer] = None
 
         # Ensure directories exist
         os.makedirs(_MEMORY_DIR, exist_ok=True)
@@ -389,13 +399,62 @@ class BaseAgent(ABC):
 
     def submit_signal(self, signal: dict) -> bool:
         """
-        Write triggers/{name.lower()}_signal.json atomically (tmp + os.replace).
-        Logs ticker, conviction_tier, edge_pct.
-        Returns True on success, False on failure (including if signal is None).
+        If MAX_SIGNALS_PER_CYCLE is set, buffer the signal and schedule a flush
+        (top N by edge_pct written after _CYCLE_FLUSH_DELAY seconds).
+        Otherwise write immediately.
+        Returns True on success / buffered, False on None or write failure.
         """
         if signal is None:
             return False
 
+        if self.MAX_SIGNALS_PER_CYCLE is not None:
+            with self._cycle_lock:
+                self._cycle_buffer.append(signal)
+                # Reset flush timer so all concurrent evals land before we flush
+                if self._cycle_flush_timer is not None:
+                    self._cycle_flush_timer.cancel()
+                timer = threading.Timer(2.0, self._flush_cycle_buffer)
+                timer.daemon = True
+                self._cycle_flush_timer = timer
+                timer.start()
+            return True  # buffered — will be written by _flush_cycle_buffer
+
+        return self._write_signal(signal)
+
+    def _flush_cycle_buffer(self) -> None:
+        """
+        Drain _cycle_buffer, sort by edge_pct descending, write top MAX_SIGNALS_PER_CYCLE.
+        Called from a daemon Timer thread.
+        """
+        with self._cycle_lock:
+            candidates = self._cycle_buffer[:]
+            self._cycle_buffer.clear()
+            self._cycle_flush_timer = None
+
+        if not candidates:
+            return
+
+        candidates.sort(
+            key=lambda s: s.get("signal", {}).get("edge_pct", 0.0),
+            reverse=True,
+        )
+        cap     = self.MAX_SIGNALS_PER_CYCLE or len(candidates)
+        top     = candidates[:cap]
+        dropped = len(candidates) - len(top)
+
+        if dropped:
+            logger.info(
+                "[%s] Signal cap %d/%d — dropping %d low-edge signals",
+                self.name, len(top), len(candidates), dropped,
+            )
+
+        for sig in top:
+            self._write_signal(sig)
+
+    def _write_signal(self, signal: dict) -> bool:
+        """
+        Write triggers/{name.lower()}_signal.json atomically and send notifications.
+        """
         filename  = f"{self.name.lower()}_signal.json"
         path      = os.path.join(_TRIGGERS_DIR, filename)
         tmp_path  = path + ".tmp"
@@ -429,7 +488,7 @@ class BaseAgent(ABC):
                 pass
             return True
         except Exception as e:
-            logger.error("[%s] submit_signal failed: %s", self.name, e)
+            logger.error("[%s] _write_signal failed: %s", self.name, e)
             try:
                 os.remove(tmp_path)
             except OSError:

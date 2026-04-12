@@ -137,8 +137,9 @@ def _reduce_tier(tier: str) -> str:
 
 
 class ShadowAgent(BaseAgent):
-    name   = "SHADOW"
-    domain = "all"
+    name                  = "SHADOW"
+    domain                = "all"
+    MAX_SIGNALS_PER_CYCLE = 2   # SHADOW echoes best agent — limit to 2 per cycle
 
     seed_rules = [
         "Copy the strategy of the agent with highest win rate in last 20 trades",
