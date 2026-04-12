@@ -1,9 +1,7 @@
 @echo off
-REM stop_syndicate.bat — Kill all Syndicate windows
-
 echo Stopping The Syndicate...
 
-taskkill /f /fi "WINDOWTITLE eq Syndicate Engine*" >nul 2>&1
-taskkill /f /fi "WINDOWTITLE eq Syndicate TC Gate*" >nul 2>&1
+wmic process where "name='python.exe' and commandline like '%%syndicate%%main.py%%'" delete >nul 2>&1
+wmic process where "name='powershell.exe' and commandline like '%%wake_syndicate%%'" delete >nul 2>&1
 
 echo Done.
