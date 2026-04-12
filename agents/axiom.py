@@ -95,14 +95,14 @@ class AxiomAgent(BaseAgent):
         Edge formula:
           displacement = abs(yes_price - 0.5)        # 0.20 – 0.50 after filter
           time_factor  = max(0.1, 1.0 - days * 0.3)  # 1.0 → 0.7 → 0.4 → 0.1
-          vol_factor   = min(1.0, volume / 100_000)   # caps at full-volume markets
+          vol_factor   = min(1.0, volume / 10_000)    # sports-scale: $10k = full weight
           edge_pct     = displacement * time_factor * vol_factor * 100
         """
         displacement = abs(market.yes_price - 0.5)
         days         = market.days_to_settlement
 
         time_factor  = max(0.1, 1.0 - days * 0.3)
-        vol_factor   = min(1.0, market.volume_dollars / 100_000)
+        vol_factor   = min(1.0, market.volume_dollars / 10_000)  # sports-scale ($10k = full weight)
         edge_pct     = displacement * time_factor * vol_factor * 100.0
 
         # ── Conviction tier ──────────────────────────────────────────────────

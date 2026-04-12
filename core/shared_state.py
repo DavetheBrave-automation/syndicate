@@ -60,6 +60,11 @@ class Position:
     contract_class: str         # SCALP / SWING / POSITION / WATCH
     edge_at_entry: float = 0.0
     opened_by_syndicate: bool = True  # False for externally-created positions
+    # Trading philosophy exit parameters (rinse-and-repeat, never hold to settlement)
+    target_exit_pct:  float = 0.20   # exit at +20% gain
+    stop_loss_pct:    float = 0.30   # exit at -30% loss
+    max_hold_minutes: int   = 60     # time stop at 60 min
+    hold_to_settlement: bool = False # never hold to settlement
 
 
 class SharedState:

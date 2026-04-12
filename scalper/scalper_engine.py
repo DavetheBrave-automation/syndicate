@@ -500,18 +500,90 @@ class ScalperEngine:
                     agent.name, ticker, exc,
                 )
 
+    @staticmethod
+    def _calc_pnl_pct(position, market) -> float:
+        """Unrealized P&L as a fraction of entry cost. Mirrors BaseAgent._calc_pnl_pct."""
+        if market is None:
+            return 0.0
+        entry_dollars = position.entry_price / 100.0
+        entry_cost    = entry_dollars * position.quantity
+        if entry_cost <= 0:
+            return 0.0
+        if position.side == "yes":
+            unrealized = (market.yes_price - entry_dollars) * position.quantity
+        else:
+            no_entry   = (100 - position.entry_price) / 100.0
+            no_current = 1.0 - market.yes_price
+            unrealized = (no_current - no_entry) * position.quantity
+        return unrealized / entry_cost
+
+    def _evaluate_position_exit(self, ticker: str, position, market) -> tuple:
+        """
+        Autonomous percentage-based exit logic — no TC involvement.
+        Returns (should_exit: bool, reason: str).
+
+        Philosophy: buy momentum/edge, ride +20%, exit, repeat.
+        Never hold to settlement. Cut losses at -30%.
+        """
+        pnl_pct      = self._calc_pnl_pct(position, market)
+        hold_minutes = (time.time() - position.entry_time) / 60.0
+
+        target_pct = getattr(position, "target_exit_pct",  0.20)
+        stop_pct   = getattr(position, "stop_loss_pct",    0.30)
+        max_hold   = getattr(position, "max_hold_minutes", 60)
+
+        if pnl_pct >= target_pct:
+            return True, f"Target hit: +{pnl_pct:.0%}"
+        if pnl_pct <= -stop_pct:
+            return True, f"Stop loss: {pnl_pct:.0%}"
+        if hold_minutes >= max_hold:
+            return True, f"Time stop: {hold_minutes:.0f}min held"
+
+        minutes_to_settle = market.days_to_settlement * 1440.0 if market else 9999.0
+        if minutes_to_settle < 15 and pnl_pct < 0:
+            return True, "Settlement protection: losing near close"
+
+        return False, "Hold"
+
     def _time_exit_loop(self):
-        """Daemon thread body. Calls _check_time_exits() and _check_agent_exits() every 30 seconds."""
+        """Daemon thread body. Calls all exit checks every 30 seconds."""
         while self._running:
             try:
                 self._check_time_exits()
             except Exception as exc:
                 logger.error("[ScalperEngine] _check_time_exits error: %s", exc, exc_info=True)
             try:
+                self._check_pct_exits()
+            except Exception as exc:
+                logger.error("[ScalperEngine] _check_pct_exits error: %s", exc, exc_info=True)
+            try:
                 self._check_agent_exits()
             except Exception as exc:
                 logger.error("[ScalperEngine] _check_agent_exits error: %s", exc, exc_info=True)
             time.sleep(_TIME_EXIT_INTERVAL)
+
+    def _check_pct_exits(self) -> None:
+        """
+        Scan all open positions. Autonomously close any that hit
+        target (+20%), stop (-30%), time limit, or settlement protection.
+        Called every 30s from _time_exit_loop.
+        """
+        for ticker, position in state.get_all_positions().items():
+            if not getattr(position, "opened_by_syndicate", False):
+                continue
+            market = state.get_market(ticker)
+            try:
+                should, reason = self._evaluate_position_exit(ticker, position, market)
+                if should:
+                    exit_price = market.yes_price if market else (position.entry_price / 100.0)
+                    logger.info("[ScalperEngine] PCT EXIT: %s | %s", ticker, reason)
+                    self._order_manager.close_position(
+                        position=position,
+                        exit_price=exit_price,
+                        exit_reason=reason,
+                    )
+            except Exception as exc:
+                logger.error("[ScalperEngine] _check_pct_exits error for %s: %s", ticker, exc)
 
     def _check_time_exits(self):
         """

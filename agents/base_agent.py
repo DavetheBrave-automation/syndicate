@@ -46,7 +46,7 @@ logger = logging.getLogger("syndicate.agents")
 # Base-level price gate — applied to all agents unless overridden
 # ---------------------------------------------------------------------------
 
-MIN_EDGE_PCT: float = 10.0   # Minimum edge % required in build_signal
+MIN_EDGE_PCT: float = 7.0    # Minimum edge % required in build_signal
 
 EVAL_COOLDOWN_SECONDS: float = 1800.0  # Default: 30 min between re-evaluations per ticker
 
@@ -385,6 +385,11 @@ class BaseAgent(ABC):
                 "max_size_dollars":          max_size_dollars,
                 "agent_name":                self.name,
                 "reasoning":                 reasoning,
+                # ── Trading philosophy — rinse-and-repeat, never hold to settlement ──
+                "target_exit_pct":   0.20,   # Exit at +20% gain
+                "stop_loss_pct":     0.30,   # Exit at -30% loss
+                "max_hold_minutes":  60,     # Never hold more than 60 min
+                "hold_to_settlement": False, # NEVER hold to settlement
             },
             "market": {
                 "ticker":             market.ticker,
@@ -605,12 +610,12 @@ class BaseAgent(ABC):
         if minutes_to_s < 10 and pnl_pct < 0:
             return True
 
-        # Profit target: up 25% — TC decides whether to take profits
-        if pnl_pct >= 0.25:
+        # Profit target: up 20% — TC decides whether to take profits
+        if pnl_pct >= 0.20:
             return True
 
-        # Stop loss: down 25% after 10 min held
-        if pnl_pct <= -0.25 and minutes_held > 10:
+        # Stop loss: down 30% after 10 min held
+        if pnl_pct <= -0.30 and minutes_held > 10:
             return True
 
         # Settlement hold check
