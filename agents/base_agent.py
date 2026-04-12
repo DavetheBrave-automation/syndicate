@@ -43,6 +43,12 @@ def _get_outcome_reporter():
 logger = logging.getLogger("syndicate.agents")
 
 # ---------------------------------------------------------------------------
+# Base-level price gate — applied to all agents unless overridden
+# ---------------------------------------------------------------------------
+
+MIN_EDGE_PCT: float = 10.0   # Minimum edge % required in build_signal
+
+# ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 
@@ -106,6 +112,9 @@ class BaseAgent(ABC):
     name:       str       = "BASE"
     domain:     str       = "all"
     seed_rules: list[str] = []
+
+    # Set True in subclasses that trade low-price contracts (e.g. GHOST)
+    _skip_base_price_gate: bool = False
 
     # ── Memory lock (one per instance) ───────────────────────────────────────
     # _benched_cache is a plain bool — GIL makes single bool read atomic.
@@ -246,6 +255,13 @@ class BaseAgent(ABC):
         if market.volume_dollars <= 0:
             return False
 
+        # ── Hard price gate ──────────────────────────────────────────────────
+        # Above 75¢ = near-certain, no edge. Below 10¢ = GHOST territory.
+        # Agents that trade low-price contracts set _skip_base_price_gate=True.
+        if not self._skip_base_price_gate:
+            if market.yes_price > 0.75 or market.yes_price < 0.10:
+                return False
+
         return True
 
     # =========================================================================
@@ -283,6 +299,14 @@ class BaseAgent(ABC):
         expires_at: UTC ISO8601, 5 minutes from now.
         max_size_dollars: derived from conviction tier via get_bet_size().
         """
+        # ── Edge floor — backstop against low-confidence signals ────────────
+        if edge_pct < MIN_EDGE_PCT:
+            logger.debug(
+                "[%s] build_signal rejected | edge=%.1f%% < MIN_EDGE=%.1f%%",
+                self.name, edge_pct, MIN_EDGE_PCT,
+            )
+            return None
+
         conviction_int   = _tier_to_conviction(conviction_tier)
         max_size_dollars = int(self.get_bet_size(conviction_int))
 
@@ -352,8 +376,11 @@ class BaseAgent(ABC):
         """
         Write triggers/{name.lower()}_signal.json atomically (tmp + os.replace).
         Logs ticker, conviction_tier, edge_pct.
-        Returns True on success, False on failure.
+        Returns True on success, False on failure (including if signal is None).
         """
+        if signal is None:
+            return False
+
         filename  = f"{self.name.lower()}_signal.json"
         path      = os.path.join(_TRIGGERS_DIR, filename)
         tmp_path  = path + ".tmp"

@@ -158,9 +158,11 @@ class DiamondAgent(BaseAgent):
         if market.spread > 0.06:
             return False
 
-        # Avoid near-certain markets — model edge is meaningless at extremes
-        if not (0.05 < market.yes_price < 0.95):
-            return False
+        # Price gates — align with Atlas brain.py entry limits
+        if market.yes_price > 0.75:
+            return False  # Near certain — no edge
+        if market.yes_price < 0.10:
+            return False  # GHOST territory
 
         return True
 

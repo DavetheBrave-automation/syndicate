@@ -24,6 +24,7 @@ _GHOST_EDGE_MULT   = 2.0    # true_prob must be >= 2× implied
 class GhostAgent(BaseAgent):
     name   = "GHOST"
     domain = "all"
+    _skip_base_price_gate = True  # GHOST trades sub-10¢ contracts intentionally
 
     seed_rules = [
         "Only buy contracts priced under 12 cents — pure long shots",
