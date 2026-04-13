@@ -502,17 +502,26 @@ class ScalperEngine:
 
     @staticmethod
     def _calc_pnl_pct(position, market) -> float:
-        """Unrealized P&L as a fraction of entry cost. Mirrors BaseAgent._calc_pnl_pct."""
+        """
+        Unrealized P&L as a fraction of actual entry cost.
+
+        entry_price convention: always stored as YES price in cents (0–100).
+          YES side: paid entry_price/100 per contract.
+          NO  side: paid (100 - entry_price)/100 per contract = NO price.
+        """
         if market is None:
             return 0.0
-        entry_dollars = position.entry_price / 100.0
-        entry_cost    = entry_dollars * position.quantity
-        if entry_cost <= 0:
-            return 0.0
         if position.side == "yes":
+            entry_dollars = position.entry_price / 100.0
+            entry_cost    = entry_dollars * position.quantity
+            if entry_cost <= 0:
+                return 0.0
             unrealized = (market.yes_price - entry_dollars) * position.quantity
         else:
-            no_entry   = (100 - position.entry_price) / 100.0
+            no_entry   = (100 - position.entry_price) / 100.0   # actual NO cost per contract
+            entry_cost = no_entry * position.quantity             # correct cost basis
+            if entry_cost <= 0:
+                return 0.0
             no_current = 1.0 - market.yes_price
             unrealized = (no_current - no_entry) * position.quantity
         return unrealized / entry_cost

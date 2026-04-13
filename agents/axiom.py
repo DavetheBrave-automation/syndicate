@@ -125,9 +125,14 @@ class AxiomAgent(BaseAgent):
             stop_price   = round(max(0.05, market.yes_price - 0.10), 3)
         else:
             side         = "no"
-            entry_price  = round(1.0 - market.yes_price, 4)
-            target_price = round(min(0.95, entry_price + displacement * 0.3), 3)
-            stop_price   = round(max(0.05, entry_price - 0.10), 3)
+            # entry_price MUST store the YES price in cents-decimal, not the NO price.
+            # order_manager._compute_pnl and scalper_engine._calc_pnl_pct both use
+            # no_entry = (100 - entry_price_cents) / 100 = 1 - YES_price = NO price.
+            # Storing NO price here inverts the formula → fake +68% gains → instant churn.
+            entry_price  = round(market.yes_price, 4)
+            no_cost      = round(1.0 - market.yes_price, 4)
+            target_price = round(min(0.95, no_cost + displacement * 0.3), 3)
+            stop_price   = round(max(0.05, no_cost - 0.10), 3)
 
         reasoning = (
             f"Consensus: yes_price={market.yes_price:.2f} "
