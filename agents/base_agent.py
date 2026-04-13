@@ -324,14 +324,16 @@ class BaseAgent(ABC):
         if time.time() - lockout_ts < 1800.0:  # 30-minute cooldown
             return False
 
-        # ── Per-ticker cooldown ───────────────────────────────────────────────
-        # Don't re-evaluate the same ticker within EVAL_COOLDOWN_SECONDS.
+        # ── Per-ticker cooldown (atomic check+stamp) ─────────────────────────
+        # Multiple scan threads race here — lock prevents all threads from
+        # passing the check before any of them stamps the key.
         cooldown_key = f"{self.name}:{market.ticker}"
-        last_eval = self._eval_cooldowns.get(cooldown_key, 0)
-        if time.time() - last_eval < self.EVAL_COOLDOWN_SECONDS:
-            return False
-        self._eval_cooldowns[cooldown_key] = time.time()
-        self._save_cooldowns()
+        with self._memory_lock:
+            last_eval = self._eval_cooldowns.get(cooldown_key, 0)
+            if time.time() - last_eval < self.EVAL_COOLDOWN_SECONDS:
+                return False
+            self._eval_cooldowns[cooldown_key] = time.time()
+        self._save_cooldowns()   # disk write outside lock
 
         return True
 
