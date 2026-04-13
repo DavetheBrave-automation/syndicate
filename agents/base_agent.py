@@ -56,6 +56,7 @@ EVAL_COOLDOWN_SECONDS: float = 1800.0  # Default: 30 min between re-evaluations 
 
 _MEMORY_DIR   = os.path.join(_SYNDICATE_ROOT, "memory")
 _TRIGGERS_DIR = os.path.join(_SYNDICATE_ROOT, "triggers")
+COOLDOWN_PATH = os.path.join(_MEMORY_DIR, "cooldowns.json")
 
 # ---------------------------------------------------------------------------
 # Module-level helpers
@@ -154,6 +155,9 @@ class BaseAgent(ABC):
             logger.warning("[%s] init load_memory failed: %s", self.name, e)
             self._benched_cache = False
 
+        # Restore cooldowns from disk so restarts don't reset per-ticker timers
+        self._load_cooldowns()
+
         logger.info("[%s] initialised (domain=%s, benched=%s)",
                     self.name, self.domain, self._benched_cache)
 
@@ -221,6 +225,36 @@ class BaseAgent(ABC):
                     pass
         # Update cache AFTER releasing lock — plain bool assignment is atomic
         self._benched_cache = memory.get("benched", False)
+
+    # =========================================================================
+    # Cooldown persistence
+    # =========================================================================
+
+    def _load_cooldowns(self) -> None:
+        """Restore per-ticker eval cooldowns from disk. Called once at __init__."""
+        try:
+            with open(COOLDOWN_PATH, encoding="utf-8") as f:
+                data = json.load(f)
+            self._eval_cooldowns = data.get(self.name, {})
+            logger.debug("[%s] Loaded %d cooldowns from disk", self.name, len(self._eval_cooldowns))
+        except Exception:
+            self._eval_cooldowns = {}
+
+    def _save_cooldowns(self) -> None:
+        """Persist per-ticker eval cooldowns to disk. Called after every cooldown stamp."""
+        try:
+            try:
+                with open(COOLDOWN_PATH, encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                data = {}
+            data[self.name] = self._eval_cooldowns
+            tmp = COOLDOWN_PATH + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            os.replace(tmp, COOLDOWN_PATH)
+        except Exception as e:
+            logger.debug("[%s] _save_cooldowns failed: %s", self.name, e)
 
     # =========================================================================
     # Hot path — should_evaluate
@@ -297,6 +331,7 @@ class BaseAgent(ABC):
         if time.time() - last_eval < self.EVAL_COOLDOWN_SECONDS:
             return False
         self._eval_cooldowns[cooldown_key] = time.time()
+        self._save_cooldowns()
 
         return True
 

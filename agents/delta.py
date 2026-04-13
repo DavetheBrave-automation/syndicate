@@ -31,7 +31,7 @@ logger = logging.getLogger("syndicate.delta")
 _MIN_VOLUME          = 5_000
 _MIN_DAYS            = 0.04  # don't arb contracts expiring in <1 hour
 _MAX_DAYS            = 30    # only trade where external data is available
-_MIN_EDGE_PCT        = 8.0
+_MIN_EDGE_PCT        = 15.0   # Override base class 7.0 — DELTA fires on everything at exactly 10%
 _PROPHECY_EDGE_PCT   = 20.0
 
 # Series where external consensus data exists
