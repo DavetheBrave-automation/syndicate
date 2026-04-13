@@ -1,16 +1,17 @@
 """
 blitz.py — BLITZ Velocity Momentum Trading Agent.
 
-Detects Kalshi markets in extreme price free-fall and fades the move —
-buying YES when velocity signals oversold crowd panic.
+Detects Kalshi markets in extreme price moves and fades the move:
+  - DROP fade: price free-fall (vel_60s < -15%, vel_300s < 0) → buy YES (oversold panic)
+  - SPIKE fade: price surge   (vel_60s > +15%, vel_300s > 0) → buy NO  (overbought euphoria)
 
 Signal logic:
-  1. should_evaluate: coarse gate on market.velocity < -12.0
+  1. should_evaluate: coarse gate on abs(market.velocity) >= 12.0
      (KalshiWS calls state.set_velocity() after each tick)
   2. evaluate: recompute 60s and 300s velocities from market.price_history
-     - Both must be negative (sustained drop, not a single-tick spike)
+     - Both windows must agree on direction (sustained, not a single-tick artifact)
      - 60s velocity magnitude drives conviction tier
-  3. Side: always YES (mean reversion / fade the panic)
+  3. Side: YES on drop fade, NO on spike fade
   4. Exit: 8 minutes OR +15% gain, whichever first
 
 Never reaches PROPHECY — pure velocity is insufficient for highest conviction.
@@ -85,10 +86,10 @@ class BlitzAgent(BaseAgent):
     domain                = "all"
     EVAL_COOLDOWN_SECONDS = 300.0   # Fast-signal agent — re-evaluate every 5 min
     seed_rules = [
-        "Only enter when 60s price velocity < -15% and 300s velocity also negative",
-        "300s velocity positive = short-term noise spike, not a sustained drop — PASS",
-        "Never enter if yes_price < 0.08 — market is already priced out",
-        "Never enter if yes_price > 0.75 — need room for a meaningful fall signal",
+        "DROP fade: enter when 60s velocity < -15% AND 300s velocity also negative — buy YES",
+        "SPIKE fade: enter when 60s velocity > +15% AND 300s velocity also positive — buy NO",
+        "Both velocity windows must agree on direction — single-tick moves are noise",
+        "Never enter if yes_price < 0.08 (already crashed) or > 0.92 (no room to spike)",
         "Volume must exceed 1000 (paper mode) — raise to 40000 before going live",
         "Spread above 0.10 signals illiquidity during panic — skip to avoid bad fills",
         "Exit in 8 minutes maximum regardless of outcome — do not hold through event",
@@ -103,12 +104,14 @@ class BlitzAgent(BaseAgent):
         if not self._base_should_evaluate(market):
             return False
 
-        # Coarse velocity gate — requires KalshiWS to call state.set_velocity() each tick
-        if market.velocity >= _VELOCITY_GATE:
+        # Coarse velocity gate — passes both big drops (YES fade) AND big spikes (NO fade)
+        if abs(market.velocity) < abs(_VELOCITY_GATE):
             return False
 
-        # Price range — skip already-crashed and high-price contracts
-        if market.yes_price <= _MIN_PRICE or market.yes_price > _MAX_PRICE:
+        # Price range — skip only hard extremes with no room to fade
+        # Drop fade needs room above (yes_price not already near 0)
+        # Spike fade needs room below (yes_price not already near 1)
+        if market.yes_price < _MIN_PRICE or market.yes_price > (1.0 - _MIN_PRICE):
             return False
 
         # Volume — velocity in thin markets is noise
@@ -132,53 +135,56 @@ class BlitzAgent(BaseAgent):
             logger.debug("[BLITZ] Insufficient price history for ticker=%s", market.ticker)
             return
 
-        # 300s velocity must be negative — confirms sustained drop, not a single spike
-        if vel_300s >= 0.0:
-            logger.debug(
-                "[BLITZ] 300s velocity %.1f%% is positive — noise, PASS | ticker=%s",
-                vel_300s, market.ticker,
-            )
-            return
-
-        # 60s velocity must clear the threshold
-        if vel_60s >= _MIN_60S_VELOCITY:
-            logger.debug(
-                "[BLITZ] 60s velocity %.1f%% insufficient | ticker=%s",
-                vel_60s, market.ticker,
-            )
-            return
-
-        # Spread check — wide spread during panic = bad fills
+        # Spread check — wide spread during panic/euphoria = bad fills
         if market.spread > _MAX_SPREAD:
             logger.debug(
                 "[BLITZ] Spread too wide %.3f | ticker=%s", market.spread, market.ticker
             )
             return
 
-        # Conviction driven by 60s velocity magnitude.
-        # _tier_to_conviction: GLITCH→2, HIGH_CONVICTION→3.
-        # Velocity alone caps at HIGH_CONVICTION — never PROPHECY.
-        # -15 to -20%  → GLITCH          ($2 bet)
-        # -20%+        → HIGH_CONVICTION ($3 bet)
         abs_vel = abs(vel_60s)
-        if abs_vel >= 20.0:
-            conviction_tier = "HIGH_CONVICTION"
+
+        if vel_60s < _MIN_60S_VELOCITY and vel_300s < 0.0:
+            # ── DROP FADE: oversold panic → buy YES ─────────────────────────────
+            side         = "yes"
+            entry_price  = round(market.yes_price, 4)
+            target_price = round(min(0.90, entry_price * (1.0 + _PROFIT_TARGET_PCT)), 3)
+            stop_price   = round(max(0.05, entry_price * (1.0 - _STOP_PCT)), 3)
+            reasoning = (
+                f"BLITZ fade drop: 60s={vel_60s:.1f}%, 300s={vel_300s:.1f}%"
+                f" | YES entry={entry_price:.3f}"
+                f" | target={target_price:.3f} (+{_PROFIT_TARGET_PCT:.0%})"
+                f" | exit=8min OR +{_PROFIT_TARGET_PCT:.0%} whichever first"
+            )
+
+        elif vel_60s > -_MIN_60S_VELOCITY and vel_300s > 0.0:
+            # ── SPIKE FADE: overbought euphoria → buy NO ─────────────────────────
+            # Pass YES price as entry_price; build_signal computes contract_cost = 1 - YES
+            side         = "no"
+            entry_price  = round(market.yes_price, 4)      # YES price (build_signal derives NO cost)
+            no_cost      = round(1.0 - market.yes_price, 4)
+            target_price = round(max(0.05, no_cost * (1.0 + _PROFIT_TARGET_PCT)), 3)
+            stop_price   = round(min(0.95, no_cost * (1.0 + _STOP_PCT)), 3)
+            reasoning = (
+                f"BLITZ fade spike: 60s={vel_60s:.1f}%, 300s={vel_300s:.1f}%"
+                f" | NO entry={no_cost:.3f} (YES={entry_price:.3f})"
+                f" | target={target_price:.3f} (+{_PROFIT_TARGET_PCT:.0%})"
+                f" | exit=8min OR +{_PROFIT_TARGET_PCT:.0%} whichever first"
+            )
+
         else:
-            conviction_tier = "GLITCH"
+            logger.debug(
+                "[BLITZ] No signal: vel_60s=%.1f%% vel_300s=%.1f%% | ticker=%s",
+                vel_60s, vel_300s, market.ticker,
+            )
+            return
 
-        entry_price  = round(market.yes_price, 4)
-        target_price = round(min(0.90, entry_price * (1.0 + _PROFIT_TARGET_PCT)), 3)
-        stop_price   = round(max(0.05, entry_price * (1.0 - _STOP_PCT)),           3)
-
-        reasoning = (
-            f"BLITZ velocity drop: 60s={vel_60s:.1f}%, 300s={vel_300s:.1f}%"
-            f" | entry={entry_price:.3f}"
-            f" | target={target_price:.3f} (+{_PROFIT_TARGET_PCT:.0%})"
-            f" | exit=8min OR +{_PROFIT_TARGET_PCT:.0%} whichever first"
-        )
+        # Conviction driven by 60s velocity magnitude (velocity alone caps at HIGH_CONVICTION)
+        # ±15–20% → GLITCH ($2 bet), ±20%+ → HIGH_CONVICTION ($3 bet)
+        conviction_tier = "HIGH_CONVICTION" if abs_vel >= 20.0 else "GLITCH"
 
         signal = self.build_signal(
-            market, conviction_tier, abs_vel, "yes",
+            market, conviction_tier, abs_vel, side,
             entry_price, target_price, stop_price, reasoning, game,
         )
         self.submit_signal(signal)

@@ -1,13 +1,15 @@
 """
 phoenix.py — PHOENIX Comeback Specialist Trading Agent.
 
-Detects trailing sides on Kalshi that are statistically underpriced
-relative to historical comeback probability. Buys the trailing team/player
-when there is a meaningful edge between market price and true comeback odds.
+Detects mispricings on Kalshi relative to historical win probability:
+  - Trailing team YES: market underprices comeback → buy YES
+  - Overpriced favorite NO: market overprices the leader → buy NO
 
 Supports: tennis (ATP/WTA), baseball (MLB), basketball (NBA).
 
-Edge = (true_comeback_prob - market_price) × 100
+Edge:
+  YES edge = (true_prob - yes_price)  × 100  [trailing team, yes_price < 0.45]
+  NO  edge = (yes_price - true_prob)  × 100  [overpriced fav, yes_price > 0.55]
 Minimum 12% edge required. PROPHECY at 20%+.
 """
 
@@ -176,16 +178,16 @@ class PhoenixAgent(BaseAgent):
     name       = "PHOENIX"
     domain     = "all"
     seed_rules = [
-        "Only trade trailing side — YES price must be below 0.45",
-        "Minimum 12% edge vs historical comeback probability required",
-        "Tennis: never trade after player goes down 0-2 sets in best-of-3",
-        "Baseball: never enter after 7th inning — variance too low to recover",
-        "Basketball: never enter if down 15+ points with under 4 minutes remaining",
+        "YES side (trailing team): yes_price < 0.45 — minimum 12% edge vs true comeback prob",
+        "NO side (overpriced favorite): yes_price > 0.55 — minimum 12% edge when market overprices leader",
+        "Skip 0.45–0.55 zone — too close to call, edge is unreliable near 50¢",
+        "Tennis YES: never trade after player goes down 0-2 sets in best-of-3",
+        "Baseball YES: never enter after 7th inning — variance too low to recover",
+        "Basketball YES: never enter if down 15+ points with under 4 minutes remaining",
         "Higher confidence on bigger deficits with more time remaining (deep value zone)",
-        "Exit immediately if trailing team scores and price snaps back 8%+ toward true prob",
-        "Prefer markets where crowd has overreacted — spread narrows on mean reversion",
-        "Never pyramid into a losing comeback — one position per market only",
-        "Volume must exceed 1000 for any comeback trade (paper mode threshold)",
+        "Exit immediately if price snaps back 8%+ toward true prob",
+        "Never pyramid into a losing position — one position per market only",
+        "Volume must exceed 1000 for any trade (paper mode threshold)",
     ]
 
     # =========================================================================
@@ -200,12 +202,14 @@ class PhoenixAgent(BaseAgent):
         if market.series_ticker not in _ALL_SERIES:
             return False
 
-        # Only consider trailing sides (market pricing a loss)
-        if market.yes_price >= 0.45:
+        # Tradeable range: 25¢–75¢
+        # YES < 0.45  → trailing team opportunity (YES edge)
+        # YES > 0.55  → overpriced favorite opportunity (NO edge)
+        # 0.45–0.55   → too close to call, skip
+        if market.yes_price < 0.25 or market.yes_price > 0.75:
             return False
 
-        # Prices this low are fully priced in — skip
-        if market.yes_price <= 0.05:
+        if 0.45 <= market.yes_price <= 0.55:
             return False
 
         # Volume gate
@@ -251,27 +255,47 @@ class PhoenixAgent(BaseAgent):
         # Use TennisWS pre-computed Markov probability (already accounts for match state)
         true_prob      = game.true_probability
         kalshi_implied = market.yes_price
-        edge_pct       = (true_prob - kalshi_implied) * 100.0
 
-        if edge_pct < 12.0:
-            logger.debug(
-                "[PHOENIX] Insufficient tennis edge %.1f%% | ticker=%s", edge_pct, market.ticker
+        if kalshi_implied < 0.45:
+            # ── Trailing player — buy YES ──────────────────────────────────────
+            edge_pct = (true_prob - kalshi_implied) * 100.0
+            if edge_pct < 12.0:
+                logger.debug(
+                    "[PHOENIX] Insufficient tennis YES edge %.1f%% | ticker=%s", edge_pct, market.ticker
+                )
+                return
+            side         = "yes"
+            entry_price  = round(kalshi_implied, 4)
+            target_price = round(min(0.90, true_prob + 0.05), 3)
+            stop_price   = round(max(0.05, entry_price - 0.08), 3)
+            reasoning = (
+                f"PHOENIX tennis trailing: Markov {true_prob:.1%} vs Kalshi {kalshi_implied:.1%}"
+                f" — YES edge {edge_pct:.1f}%"
+                f" | {game.player1} vs {game.player2} | sets {p1_sets}-{p2_sets}"
             )
-            return
+
+        else:
+            # ── Overpriced favorite — buy NO ───────────────────────────────────
+            edge_pct = (kalshi_implied - true_prob) * 100.0
+            if edge_pct < 12.0:
+                logger.debug(
+                    "[PHOENIX] Insufficient tennis NO edge %.1f%% | ticker=%s", edge_pct, market.ticker
+                )
+                return
+            side         = "no"
+            entry_price  = round(kalshi_implied, 4)        # YES price; build_signal derives NO cost
+            no_cost      = round(1.0 - kalshi_implied, 4)
+            target_price = round(max(0.05, no_cost + (kalshi_implied - true_prob) * 0.3), 3)
+            stop_price   = round(min(0.95, no_cost + 0.08), 3)
+            reasoning = (
+                f"PHOENIX tennis overpriced fav: Kalshi {kalshi_implied:.1%} vs Markov {true_prob:.1%}"
+                f" — NO edge {edge_pct:.1f}%"
+                f" | {game.player1} vs {game.player2} | sets {p1_sets}-{p2_sets}"
+            )
 
         conviction_tier = "PROPHECY" if edge_pct >= 20.0 else "HIGH_CONVICTION"
-        entry_price  = round(kalshi_implied, 4)
-        target_price = round(min(0.90, true_prob + 0.05), 3)
-        stop_price   = round(max(0.05, entry_price - 0.08), 3)
-
-        reasoning = (
-            f"PHOENIX tennis comeback: Markov {true_prob:.1%} vs Kalshi {kalshi_implied:.1%}"
-            f" — {edge_pct:.1f}% edge"
-            f" | {game.player1} vs {game.player2} | sets {p1_sets}-{p2_sets}"
-        )
-
         signal = self.build_signal(
-            market, conviction_tier, edge_pct, "yes",
+            market, conviction_tier, edge_pct, side,
             entry_price, target_price, stop_price, reasoning, game,
         )
         self.submit_signal(signal)
@@ -312,27 +336,47 @@ class PhoenixAgent(BaseAgent):
             return
 
         true_prob = _nearest_baseball_prob(deficit, innings_remaining)
-        edge_pct  = (true_prob - kalshi_implied) * 100.0
 
-        if edge_pct < 12.0:
-            logger.debug(
-                "[PHOENIX] Insufficient baseball edge %.1f%% | ticker=%s", edge_pct, market.ticker
+        if kalshi_implied < 0.45:
+            # ── Trailing team — buy YES ────────────────────────────────────────
+            edge_pct = (true_prob - kalshi_implied) * 100.0
+            if edge_pct < 12.0:
+                logger.debug(
+                    "[PHOENIX] Insufficient baseball YES edge %.1f%% | ticker=%s", edge_pct, market.ticker
+                )
+                return
+            side         = "yes"
+            entry_price  = round(kalshi_implied, 4)
+            target_price = round(min(0.90, true_prob + 0.05), 3)
+            stop_price   = round(max(0.05, entry_price - 0.08), 3)
+            reasoning = (
+                f"PHOENIX baseball trailing: hist_prob={true_prob:.1%} vs Kalshi={kalshi_implied:.1%}"
+                f" — YES edge {edge_pct:.1f}%"
+                f" | deficit={deficit} runs, innings_rem={innings_remaining}"
             )
-            return
+
+        else:
+            # ── Overpriced favorite — buy NO ───────────────────────────────────
+            edge_pct = (kalshi_implied - true_prob) * 100.0
+            if edge_pct < 12.0:
+                logger.debug(
+                    "[PHOENIX] Insufficient baseball NO edge %.1f%% | ticker=%s", edge_pct, market.ticker
+                )
+                return
+            side         = "no"
+            entry_price  = round(kalshi_implied, 4)        # YES price; build_signal derives NO cost
+            no_cost      = round(1.0 - kalshi_implied, 4)
+            target_price = round(max(0.05, no_cost + (kalshi_implied - true_prob) * 0.3), 3)
+            stop_price   = round(min(0.95, no_cost + 0.08), 3)
+            reasoning = (
+                f"PHOENIX baseball overpriced fav: Kalshi={kalshi_implied:.1%} vs hist_prob={true_prob:.1%}"
+                f" — NO edge {edge_pct:.1f}%"
+                f" | deficit={deficit} runs, innings_rem={innings_remaining}"
+            )
 
         conviction_tier = "PROPHECY" if edge_pct >= 20.0 else "HIGH_CONVICTION"
-        entry_price  = round(kalshi_implied, 4)
-        target_price = round(min(0.90, true_prob + 0.05), 3)
-        stop_price   = round(max(0.05, entry_price - 0.08), 3)
-
-        reasoning = (
-            f"PHOENIX baseball comeback: hist_prob={true_prob:.1%} vs Kalshi={kalshi_implied:.1%}"
-            f" — {edge_pct:.1f}% edge"
-            f" | est deficit={deficit} runs, innings_rem={innings_remaining}"
-        )
-
         signal = self.build_signal(
-            market, conviction_tier, edge_pct, "yes",
+            market, conviction_tier, edge_pct, side,
             entry_price, target_price, stop_price, reasoning,
         )
         self.submit_signal(signal)
@@ -354,27 +398,47 @@ class PhoenixAgent(BaseAgent):
             return
 
         true_prob = _nearest_basketball_prob(deficit, minutes_remaining)
-        edge_pct  = (true_prob - kalshi_implied) * 100.0
 
-        if edge_pct < 12.0:
-            logger.debug(
-                "[PHOENIX] Insufficient basketball edge %.1f%% | ticker=%s", edge_pct, market.ticker
+        if kalshi_implied < 0.45:
+            # ── Trailing team — buy YES ────────────────────────────────────────
+            edge_pct = (true_prob - kalshi_implied) * 100.0
+            if edge_pct < 12.0:
+                logger.debug(
+                    "[PHOENIX] Insufficient basketball YES edge %.1f%% | ticker=%s", edge_pct, market.ticker
+                )
+                return
+            side         = "yes"
+            entry_price  = round(kalshi_implied, 4)
+            target_price = round(min(0.90, true_prob + 0.05), 3)
+            stop_price   = round(max(0.05, entry_price - 0.08), 3)
+            reasoning = (
+                f"PHOENIX basketball trailing: hist_prob={true_prob:.1%} vs Kalshi={kalshi_implied:.1%}"
+                f" — YES edge {edge_pct:.1f}%"
+                f" | deficit={deficit}pts, min_rem={minutes_remaining:.0f}"
             )
-            return
+
+        else:
+            # ── Overpriced favorite — buy NO ───────────────────────────────────
+            edge_pct = (kalshi_implied - true_prob) * 100.0
+            if edge_pct < 12.0:
+                logger.debug(
+                    "[PHOENIX] Insufficient basketball NO edge %.1f%% | ticker=%s", edge_pct, market.ticker
+                )
+                return
+            side         = "no"
+            entry_price  = round(kalshi_implied, 4)        # YES price; build_signal derives NO cost
+            no_cost      = round(1.0 - kalshi_implied, 4)
+            target_price = round(max(0.05, no_cost + (kalshi_implied - true_prob) * 0.3), 3)
+            stop_price   = round(min(0.95, no_cost + 0.08), 3)
+            reasoning = (
+                f"PHOENIX basketball overpriced fav: Kalshi={kalshi_implied:.1%} vs hist_prob={true_prob:.1%}"
+                f" — NO edge {edge_pct:.1f}%"
+                f" | deficit={deficit}pts, min_rem={minutes_remaining:.0f}"
+            )
 
         conviction_tier = "PROPHECY" if edge_pct >= 20.0 else "HIGH_CONVICTION"
-        entry_price  = round(kalshi_implied, 4)
-        target_price = round(min(0.90, true_prob + 0.05), 3)
-        stop_price   = round(max(0.05, entry_price - 0.08), 3)
-
-        reasoning = (
-            f"PHOENIX basketball comeback: hist_prob={true_prob:.1%} vs Kalshi={kalshi_implied:.1%}"
-            f" — {edge_pct:.1f}% edge"
-            f" | est deficit={deficit}pts, min_rem={minutes_remaining:.0f}"
-        )
-
         signal = self.build_signal(
-            market, conviction_tier, edge_pct, "yes",
+            market, conviction_tier, edge_pct, side,
             entry_price, target_price, stop_price, reasoning,
         )
         self.submit_signal(signal)
