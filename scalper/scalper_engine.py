@@ -528,6 +528,10 @@ class ScalperEngine:
         pnl_pct      = self._calc_pnl_pct(position, market)
         hold_minutes = (time.time() - position.entry_time) / 60.0
 
+        # Minimum hold time — prevents trigger-happy exits due to spread on entry
+        if hold_minutes < 5.0:
+            return False, "Too early — minimum 5 min hold"
+
         target_pct = getattr(position, "target_exit_pct",  0.20)
         stop_pct   = getattr(position, "stop_loss_pct",    0.30)
         max_hold   = getattr(position, "max_hold_minutes", 60)
@@ -577,6 +581,8 @@ class ScalperEngine:
                 if should:
                     exit_price = market.yes_price if market else (position.entry_price / 100.0)
                     logger.info("[ScalperEngine] PCT EXIT: %s | %s", ticker, reason)
+                    # Stamp re-entry lockout BEFORE closing — agents see it immediately
+                    state.exit_lockouts[ticker] = time.time()
                     self._order_manager.close_position(
                         position=position,
                         exit_price=exit_price,

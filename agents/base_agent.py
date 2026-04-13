@@ -282,6 +282,14 @@ class BaseAgent(ABC):
             if market.yes_price > 0.75 or market.yes_price < 0.25:
                 return False
 
+        # ── Re-entry lockout ─────────────────────────────────────────────────
+        # Block re-entry on any ticker that was autonomously exited in the
+        # last 30 minutes. Prevents buy-sell churn after pct exits.
+        from core.shared_state import state as _state  # noqa: PLC0415
+        lockout_ts = _state.exit_lockouts.get(market.ticker, 0.0)
+        if time.time() - lockout_ts < 1800.0:  # 30-minute cooldown
+            return False
+
         # ── Per-ticker cooldown ───────────────────────────────────────────────
         # Don't re-evaluate the same ticker within EVAL_COOLDOWN_SECONDS.
         cooldown_key = f"{self.name}:{market.ticker}"

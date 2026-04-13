@@ -90,6 +90,10 @@ class SharedState:
         self.is_trading: bool = True
         self.session_start: float = 0.0
 
+        # Re-entry lockout: ticker → timestamp of last autonomous exit
+        # Agents check this in _base_should_evaluate to block re-entry for 30 min
+        self.exit_lockouts: dict[str, float] = {}
+
     # -------------------------------------------------------------------------
     # Markets
     # -------------------------------------------------------------------------
