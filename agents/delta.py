@@ -110,6 +110,13 @@ class DeltaAgent(BaseAgent):
         if market.days_to_settlement > _MAX_DAYS:
             return False
 
+        # Live-event day filter: only trade contracts settling within 24 hours
+        # unless they are SCALP class (short-term by definition).
+        # Blocks 3-day lottery tickets (e.g. tournament winner outright) —
+        # those are not the rinse-and-repeat model.
+        if market.days_to_settlement > 1 and market.contract_class != "SCALP":
+            return False
+
         # Must be in a series with available external data
         series = _extract_series(market.ticker)
         if not any(market.ticker.upper().startswith(p) for p in _ARB_ELIGIBLE_PREFIXES):

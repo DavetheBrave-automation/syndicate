@@ -537,9 +537,10 @@ class ScalperEngine:
         pnl_pct      = self._calc_pnl_pct(position, market)
         hold_minutes = (time.time() - position.entry_time) / 60.0
 
-        # Minimum hold time — prevents trigger-happy exits due to spread on entry
-        if hold_minutes < 5.0:
-            return False, "Too early — minimum 5 min hold"
+        # Minimum hold time — only block LOSING exits under 5 minutes.
+        # Winning exits fire immediately regardless of hold time.
+        if hold_minutes < 5.0 and pnl_pct < 0:
+            return False, "Too early to exit at a loss"
 
         target_pct = getattr(position, "target_exit_pct",  0.20)
         stop_pct   = getattr(position, "stop_loss_pct",    0.30)
