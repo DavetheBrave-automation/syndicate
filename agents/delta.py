@@ -110,11 +110,9 @@ class DeltaAgent(BaseAgent):
         if market.days_to_settlement > _MAX_DAYS:
             return False
 
-        # Live-event day filter: only trade contracts settling within 24 hours
-        # unless they are SCALP class (short-term by definition).
-        # Blocks 3-day lottery tickets (e.g. tournament winner outright) —
-        # those are not the rinse-and-repeat model.
-        if market.days_to_settlement > 1 and market.contract_class != "SCALP":
+        # Lottery ticket filter: multi-day contracts only worth trading as real long shots.
+        # yes_price > 10¢ at 2+ days out → not a long shot, skip.
+        if market.days_to_settlement > 1 and market.yes_price > 0.10:
             return False
 
         # Must be in a series with available external data
@@ -182,6 +180,11 @@ class DeltaAgent(BaseAgent):
             market, conviction_tier, edge_pct_est, side,
             entry_price, target_price, stop_price, reasoning, game,
         )
+
+        # Lottery ticket size cap: multi-day long shots hard-capped at $2
+        if market.days_to_settlement > 1:
+            signal["signal"]["max_size_dollars"] = 2
+            signal["signal"]["lottery_ticket"]   = True
 
         # Tag for TC: web search is mandatory
         signal["signal"]["requires_web_search"] = True
