@@ -40,12 +40,6 @@ class AxiomAgent(BaseAgent):
     name:       str       = "AXIOM"
     domain:     str       = "prediction"
 
-    # AXIOM trades at price extremes: YES > 0.70 or YES < 0.30.
-    # The base gate blocks YES > 0.75 / YES < 0.25 — that would silently kill
-    # AXIOM's strongest signals. Skip it; AXIOM's own should_evaluate() enforces
-    # the 0.30 / 0.70 bounds directly.
-    _skip_base_price_gate: bool = True
-
     seed_rules: list[str] = [
         "Only trade when settlement is within 3 days and volume exceeds 1000",
         "Bet WITH market consensus at extreme prices (>70% YES or <30% YES)",
@@ -83,6 +77,12 @@ class AxiomAgent(BaseAgent):
             return False
 
         if market.spread > MAX_SPREAD:
+            return False
+
+        # AXIOM price gate — YES must be in 25¢-75¢ window.
+        # Outside this: contract is near-settled, entry cost is too extreme,
+        # no safe round-trip. Both sides must pay 25¢-75¢ for valid edge.
+        if market.yes_price > 0.75 or market.yes_price < 0.25:
             return False
 
         # Price in the neutral zone [0.30, 0.70] — no edge
@@ -215,35 +215,42 @@ class AxiomAgent(BaseAgent):
         if market is None:
             return False
 
+        # market.yes_price is 0..1 float — safety normalize if somehow in cents
         yes_price = market.yes_price
+        if yes_price > 1.0:
+            yes_price = yes_price / 100.0
 
         if position.side == "yes":
-            our_side   = yes_price
+            our_side   = yes_price          # YES holder profits as YES rises
             their_side = 1.0 - yes_price
-            our_entry  = position.entry_price / 100.0
         else:
-            our_side   = 1.0 - yes_price
+            our_side   = 1.0 - yes_price   # NO holder profits as YES falls
             their_side = yes_price
-            our_entry  = (100 - position.entry_price) / 100.0
+
+        # Log for debugging — confirms the calculation is correct
+        logger.debug(
+            "[AXIOM] should_exit check: side=%s yes_price=%.2f our_side=%.2f their_side=%.2f",
+            position.side, yes_price, our_side, their_side,
+        )
 
         if our_side >= 0.90:
-            logger.info("[AXIOM] Exit flag: win locked — our side %.0f%%", our_side * 100)
+            logger.info("[AXIOM] Exit: win locked — our side %.0f%%", our_side * 100)
             return True
         if their_side >= 0.90:
-            logger.info("[AXIOM] Exit flag: settlement risk — other side %.0f%%", their_side * 100)
+            logger.info("[AXIOM] Exit: settlement risk — their side %.0f%%", their_side * 100)
             return True
         if our_side >= 0.85:
-            logger.info("[AXIOM] Exit flag: profit target — our side %.0f%%", our_side * 100)
+            logger.info("[AXIOM] Exit: profit target — our side %.0f%%", our_side * 100)
             return True
         if our_side <= 0.15:
-            logger.info("[AXIOM] Exit flag: stop loss — our side %.0f%%", our_side * 100)
+            logger.info("[AXIOM] Exit: stop loss — our side %.0f%%", our_side * 100)
             return True
 
         minutes_to_settle = market.days_to_settlement * 1440.0
-        if minutes_to_settle < 60 and our_entry > 0:
-            pnl_pct = (our_side - our_entry) / our_entry
-            if pnl_pct < 0:
-                logger.info("[AXIOM] Exit flag: time stop — underwater %.0f%% with <1hr left", pnl_pct * 100)
+        if minutes_to_settle < 60:
+            our_entry = position.entry_price / 100.0 if position.side == "yes" else (100 - position.entry_price) / 100.0
+            if our_side < our_entry:
+                logger.info("[AXIOM] Exit: time stop — underwater with <1hr to settlement")
                 return True
 
         return False
