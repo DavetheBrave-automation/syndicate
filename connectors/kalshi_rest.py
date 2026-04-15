@@ -237,9 +237,16 @@ _KNOWN_SPORTS_SERIES = [
     "KXNFL",         # NFL
     "KXSOCCER",      # Soccer / MLS
     "KXNCAA",        # College sports
-    # NOTE: Crypto, politics, and economics series removed for 30-day validation phase.
-    # Re-enable after 50 sports trades with positive P&L:
-    # KXBTCD, KXETHUSD, KXPOL, KXECON, KXFED, KXCPI, KXELEC, KXAPPROVAL
+    # Crypto
+    "KXBTCD",       # Bitcoin daily price
+    "KXETHUSD",     # Ethereum daily price
+    # Politics / Economics
+    "KXPOL",        # Politics
+    "KXECON",       # Economics
+    "KXFED",        # Federal Reserve rate decisions
+    "KXCPI",        # CPI inflation
+    "KXELEC",       # Elections
+    "KXAPPROVAL",   # Approval ratings
 ]
 
 _active_series_cache: list[str] = []

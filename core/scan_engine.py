@@ -270,23 +270,8 @@ class ScanEngine:
                 [a.name for a in self._agents],
             )
 
-            # ── Validation phase: bench DIAMOND and ORACLE for 30 days ────────
-            # Re-enable manually once 50 sports trades with positive P&L achieved.
-            _BENCHED_FOR_VALIDATION = {"DIAMOND", "ORACLE"}
-            _bench_until = (
-                datetime.now(timezone.utc) + timedelta(days=30)
-            ).strftime("%Y-%m-%dT%H:%M:%SZ")
-            for _agent in self._agents:
-                if _agent.name in _BENCHED_FOR_VALIDATION:
-                    _mem = _agent.load_memory()
-                    if not _mem.get("benched"):
-                        _mem["benched"]       = True
-                        _mem["benched_until"] = _bench_until
-                        _agent.save_memory(_mem)
-                    logger.info(
-                        "[ScanEngine] VALIDATION: %s benched until %s",
-                        _agent.name, _mem.get("benched_until"),
-                    )
+            # ── Validation phase bench override removed 2026-04-14 ─────────────
+            # DIAMOND and ORACLE now active in paper mode. All 15 agents running.
 
         except ImportError as e:
             logger.warning(
