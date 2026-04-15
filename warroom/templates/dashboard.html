@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>NFE War Room × Syndicate</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="60">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#060606;color:#c8c8c8;font-family:'Courier New',monospace;font-size:12px;padding:10px}
+a{color:#4499ff;text-decoration:none}
+
+/* Header */
+.hdr{border-bottom:1px solid #222;padding-bottom:8px;margin-bottom:12px}
+.hdr h1{font-size:14px;color:#00ff88;letter-spacing:2px}
+.hdr .sub{color:#444;font-size:10px;margin-top:3px}
+.badge-paper{background:#001a33;color:#4499ff;padding:1px 6px;border-radius:2px;font-size:9px;border:1px solid #003366}
+.badge-live{background:#330000;color:#ff4444;padding:1px 6px;border-radius:2px;font-size:9px;border:1px solid #660000}
+
+/* Grid */
+.row{display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.col{flex:1;min-width:220px}
+.col-wide{flex:2;min-width:360px}
+.col-full{flex:100%}
+
+/* Sections */
+.sec{background:#0e0e0e;border:1px solid #1c1c1c;border-radius:4px;padding:10px;height:100%}
+.sec h2{font-size:9px;color:#444;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;border-bottom:1px solid #1a1a1a;padding-bottom:4px}
+
+/* Tables */
+table{width:100%;border-collapse:collapse;font-size:11px}
+th{color:#444;padding:3px 5px;text-align:left;font-weight:normal;border-bottom:1px solid #1a1a1a;font-size:9px;text-transform:uppercase;letter-spacing:1px}
+td{padding:3px 5px;border-bottom:1px solid #111;vertical-align:top}
+tr:hover td{background:#131313}
+
+/* Colors */
+.g{color:#00ff88}.r{color:#ff4444}.y{color:#ffaa00}.b{color:#4499ff}.p{color:#cc88ff}
+.dim{color:#333}
+.ts{color:#333;font-size:9px}
+
+/* Agent tiles */
+.roster{display:flex;flex-wrap:wrap;gap:5px}
+.tile{background:#111;border:1px solid #1e1e1e;border-radius:3px;padding:6px 8px;min-width:90px;position:relative}
+.tile.benched{border-color:#330000;opacity:0.5}
+.tile.new-agent{border-color:#ff8844}
+.tile .agent-name{font-size:11px;font-weight:bold;color:#e0e0e0;margin-bottom:2px}
+.tile .agent-name.new-agent{color:#ff8844}
+.tile .stats{font-size:9px;color:#555}
+.tile .pnl{font-size:10px;margin-top:2px}
+.tile .pnl.pos{color:#00ff88}.tile .pnl.neg{color:#ff4444}.tile .pnl.zero{color:#555}
+
+/* Macro table */
+.macro-val{color:#e0e0e0}
+.macro-val.HAWKISH,.macro-val.RISING,.macro-val.INVERTED,.macro-val.HIGH,.macro-val.EXTREME{color:#ff4444}
+.macro-val.DOVISH,.macro-val.FALLING,.macro-val.NORMAL,.macro-val.LOW{color:#00ff88}
+.macro-val.FEAR,.macro-val.EXTREME_FEAR{color:#ff4444}
+.macro-val.GREED,.macro-val.EXTREME_GREED{color:#ffaa00}
+.macro-val.NEUTRAL,.macro-val.FLAT,.macro-val.MEDIUM{color:#555}
+
+/* Log feed */
+.log-wrap{font-size:9px;line-height:1.6;max-height:220px;overflow-y:auto;color:#333}
+.log-line{white-space:pre-wrap;word-break:break-all}
+.log-line.sig{color:#00ff88}.log-line.err{color:#ff4444}.log-line.warn{color:#ffaa00}
+.log-line.oil{color:#ff8844}.log-line.axiom{color:#4499ff}
+
+/* Scores */
+.pnl-pos{color:#00ff88}.pnl-neg{color:#ff4444}
+.rank-1{color:#ffd700}.rank-2{color:#aaaaaa}.rank-3{color:#cd7f32}
+
+/* Vp */
+.vp-bar-wrap{background:#111;border-radius:2px;height:4px;margin-top:4px;width:100%}
+.vp-bar{background:#4499ff;height:4px;border-radius:2px}
+
+/* divider */
+.sep{border:none;border-top:1px solid #1a1a1a;margin:8px 0}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <h1>🎯 NFE WAR ROOM × SYNDICATE ENGINE
+    <span class="{{ 'badge-live' if mode == 'LIVE' else 'badge-paper' }}">{{ mode }}</span>
+    {% if mode == 'PAPER' %}<span class="badge-paper" style="margin-left:4px">[PAPER — NO REAL MONEY]</span>{% endif %}
+  </h1>
+  <div class="sub">{{ now_utc }} | {{ total_trades }} closed trades | Session P&amp;L:
+    <span class="{{ 'g' if total_pnl >= 0 else 'r' }}">{{ '+' if total_pnl >= 0 else '' }}${{ '%.2f'|format(total_pnl) }}</span>
+    | Exposure cap: ${{ max_exposure }} | Auto-refresh 60s
+  </div>
+</div>
+
+<div class="row">
+  <!-- MACRO SIGNALS -->
+  <div class="col">
+    <div class="sec">
+      <h2>🌍 Macro Signals</h2>
+      <table>
+        {% for row in macro_rows %}
+        <tr>
+          <td class="ts">{{ row.label }}</td>
+          <td>
+            {% set v = row.val|string %}
+            {% set cls = v.split()[0] if v else '' %}
+            <span class="macro-val {{ cls }}">{{ v }}</span>
+            {% if row.raw is not none %}<span class="ts"> ({{ '%.2f'|format(row.raw) if row.raw else '—' }})</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+
+  <!-- VALIDATION STATUS -->
+  <div class="col">
+    <div class="sec">
+      <h2>📋 Validation Status</h2>
+      {% set threshold = vp.get('unlock_threshold_trades', 50) %}
+      {% set progress_pct = [[(total_trades / threshold * 100)|int, 0]|max, 100]|min %}
+      <div style="color:#555;font-size:10px;line-height:1.8">
+        <div>Phase: <span class="{{ 'y' if vp.get('active') else 'g' }}">{{ 'ACTIVE' if vp.get('active') else 'COMPLETE' }}</span></div>
+        <div>Window: {{ vp.get('start_date', '—') }} → {{ vp.get('end_date', '—') }}</div>
+        <div>Benched: <span class="{{ 'r' if vp.get('benched_agents') else 'g' }}">{{ vp.get('benched_agents', [])|join(', ') or 'None' }}</span></div>
+        <div style="margin-top:6px">
+          Trades: <span class="{{ 'g' if total_trades >= threshold else 'y' }}">{{ total_trades }}</span> / {{ threshold }} unlock threshold
+        </div>
+        <div class="vp-bar-wrap"><div class="vp-bar" style="width:{{ progress_pct }}%"></div></div>
+        <div style="margin-top:6px;color:#333">{{ progress_pct }}% to unlock</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- AGENT ROSTER -->
+<div class="sec" style="margin-bottom:10px">
+  <h2>🤖 Agent Roster — 16 Agents</h2>
+  <div class="roster">
+    {% for agent in roster %}
+    <div class="tile {{ 'benched' if agent.benched else '' }} {{ 'new-agent' if agent.is_new else '' }}">
+      <div class="agent-name {{ 'new-agent' if agent.is_new else '' }}">
+        {{ agent.name }}{% if agent.is_new %} ⭐{% endif %}{% if agent.benched %} 🔒{% endif %}
+      </div>
+      <div class="stats">
+        {% if agent.trades > 0 %}{{ agent.win_pct }}% win | {{ agent.trades }}t{% else %}0 trades{% endif %}
+      </div>
+      <div class="pnl {{ 'pos' if agent.pnl > 0 else 'neg' if agent.pnl < 0 else 'zero' }}">
+        {{ '+' if agent.pnl >= 0 else '' }}${{ '%.2f'|format(agent.pnl) }}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="row">
+  <!-- LEADERBOARD -->
+  <div class="col">
+    <div class="sec">
+      <h2>🏆 Leaderboard (by P&amp;L)</h2>
+      <table>
+        <tr><th>#</th><th>Agent</th><th>P&amp;L</th><th>Win%</th><th>Trades</th></tr>
+        {% for a in leaderboard[:10] %}
+        <tr>
+          <td class="{{ 'rank-1' if loop.index0==0 else 'rank-2' if loop.index0==1 else 'rank-3' if loop.index0==2 else 'dim' }}">{{ loop.index }}</td>
+          <td class="{{ 'g' if a.pnl > 0 else 'r' if a.pnl < 0 else 'dim' }}">{{ a.name }}</td>
+          <td class="{{ 'pnl-pos' if a.pnl >= 0 else 'pnl-neg' }}">{{ '+' if a.pnl >= 0 else '' }}${{ '%.2f'|format(a.pnl) }}</td>
+          <td class="{{ 'g' if a.win_pct >= 60 else 'y' if a.win_pct >= 45 else 'r' }}">{{ a.win_pct|int }}%</td>
+          <td class="ts">{{ a.trades }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+
+  <!-- RECENT TRADES -->
+  <div class="col-wide">
+    <div class="sec">
+      <h2>📊 Recent Trades</h2>
+      <table>
+        <tr><th>Ticker</th><th>Agent</th><th>Side</th><th>Entry</th><th>Exit</th><th>P&amp;L</th><th>Reason</th></tr>
+        {% for t in recent_trades %}
+        <tr>
+          <td class="ts">{{ t.ticker[:28] }}</td>
+          <td class="{{ 'y' if t.agent_name == 'OIL' else '' }}">{{ t.agent_name or '—' }}</td>
+          <td class="{{ 'g' if t.side == 'yes' else 'r' }}">{{ (t.side or '—')|upper }}</td>
+          <td class="ts">{{ t.entry_price }}¢</td>
+          <td class="ts">{{ ((t.exit_price or 0)*100)|int }}¢</td>
+          <td class="{{ 'pnl-pos' if (t.pnl or 0) >= 0 else 'pnl-neg' }}">
+            {{ t.pnl_sign }}${{ '%.3f'|format(t.pnl or 0) }}
+          </td>
+          <td class="ts">{{ (t.exit_reason or '—')[:22] }}</td>
+        </tr>
+        {% endfor %}
+        {% if not recent_trades %}
+        <tr><td colspan="7" class="dim" style="padding:8px">No trades recorded yet.</td></tr>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- LIVE SIGNAL FEED -->
+<div class="sec">
+  <h2>📡 Live Signal Feed (last 40 log lines)</h2>
+  <div class="log-wrap">
+    {% for line in log_lines %}
+    {% set lc = line|lower %}
+    <div class="log-line
+      {{ 'sig' if 'signal submitted' in lc or 'signal:' in lc else
+         'oil' if '[oil]' in lc else
+         'axiom' if '[axiom]' in lc else
+         'err' if 'error' in lc or 'failed' in lc else
+         'warn' if 'warning' in lc or 'benched' in lc else '' }}">{{ line }}</div>
+    {% endfor %}
+    {% if not log_lines %}<div class="dim">No log data available.</div>{% endif %}
+  </div>
+</div>
+
+</body>
+</html>

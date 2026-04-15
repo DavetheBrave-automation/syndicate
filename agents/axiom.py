@@ -97,6 +97,7 @@ class AxiomAgent(BaseAgent):
           time_factor  = max(0.1, 1.0 - days * 0.3)  # 1.0 → 0.7 → 0.4 → 0.1
           vol_factor   = min(1.0, volume / 10_000)    # sports-scale: $10k = full weight
           edge_pct     = displacement * time_factor * vol_factor * 100
+          macro boost  = +15-20% if asset class matches MacroLLM top_opportunity_class
         """
         displacement = abs(market.yes_price - 0.5)
         days         = market.days_to_settlement
@@ -104,6 +105,35 @@ class AxiomAgent(BaseAgent):
         time_factor  = max(0.1, 1.0 - days * 0.3)
         vol_factor   = min(1.0, market.volume_dollars / 10_000)  # sports-scale ($10k = full weight)
         edge_pct     = displacement * time_factor * vol_factor * 100.0
+
+        # ── Macro overlay — boost edge if MacroLLM flags this asset class ────
+        try:
+            from signals.aggregate import get_snapshot
+            signals     = get_snapshot()
+            top_class   = signals.get("top_opportunity_class", "")
+            fng         = int(signals.get("fng_value", 50) or 50)
+            market_risk = signals.get("overall_market_risk", "MEDIUM") or "MEDIUM"
+            series      = market.series_ticker.upper()
+
+            if series.startswith("KXBTC") and top_class == "crypto":
+                edge_pct *= 1.15
+            elif series.startswith("KXETH") and top_class == "crypto":
+                edge_pct *= 1.15
+            elif series.startswith("KXWTI") and top_class == "oil":
+                edge_pct *= 1.20
+            elif series.startswith("KXFFR") and top_class == "rates":
+                edge_pct *= 1.15
+
+            # Extreme fear = contrarian buy signal for crypto
+            if fng < 20 and series.startswith(("KXBTC", "KXETH")):
+                edge_pct *= 1.10
+
+            # High market risk = avoid political contracts (too noisy)
+            if market_risk == "EXTREME" and series.startswith("KXPOL"):
+                edge_pct *= 0.80
+
+        except Exception:
+            pass   # signals unavailable — continue with unmodified edge
 
         # ── Conviction tier ──────────────────────────────────────────────────
         if days == 0 and displacement >= 0.35 and edge_pct >= 15.0:

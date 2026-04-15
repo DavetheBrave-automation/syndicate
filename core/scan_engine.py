@@ -257,6 +257,7 @@ class ScanEngine:
             from agents.mirror import MirrorAgent
             from agents.sage import SageAgent
             from agents.echo import EchoAgent
+            from agents.oil import OilAgent
             self._agents = [
                 AceAgent(), AxiomAgent(), DiamondAgent(),
                 PhoenixAgent(), BlitzAgent(),
@@ -264,6 +265,7 @@ class ScanEngine:
                 OracleAgent(), TideAgent(), CipherAgent(),
                 DeltaAgent(), MirrorAgent(),
                 SageAgent(), EchoAgent(),
+                OilAgent(),
             ]
             logger.info(
                 "[ScanEngine] Agents loaded: %s",
@@ -271,7 +273,7 @@ class ScanEngine:
             )
 
             # ── Validation phase bench override removed 2026-04-14 ─────────────
-            # DIAMOND and ORACLE now active in paper mode. All 15 agents running.
+            # DIAMOND and ORACLE now active in paper mode. All 16 agents running.
 
         except ImportError as e:
             logger.warning(

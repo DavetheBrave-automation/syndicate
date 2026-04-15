@@ -186,6 +186,22 @@ class OracleAgent(BaseAgent):
         signal["signal"]["web_search_required"] = True
         signal["signal"]["oracle_series"]        = _series_from_ticker(ticker)
 
+        # Attach live macro context so TC has additional context without extra tool calls
+        try:
+            from signals.aggregate import get_snapshot
+            snap = get_snapshot()
+            signal["signal"]["macro_context"] = {
+                "fed_status":       snap.get("fed_status"),
+                "curve_status":     snap.get("curve_status"),
+                "fng_status":       snap.get("fng_status"),
+                "macro_llm_status": snap.get("macro_llm_status"),
+                "rates_narrative":  snap.get("rates_narrative"),
+                "overall_risk":     snap.get("overall_market_risk"),
+                "top_class":        snap.get("top_opportunity_class"),
+            }
+        except Exception:
+            pass
+
         self.submit_signal(signal)
         logger.info(
             "[ORACLE] Signal submitted: %s %s edge~%.0f%%",
