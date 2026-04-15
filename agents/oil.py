@@ -76,80 +76,92 @@ class OilAgent(BaseAgent):
             from signals.aggregate import get_snapshot
             signals = get_snapshot()
         except Exception as e:
-            logger.warning("[OIL] signals unavailable: %s — skipping", e)
-            return
+            logger.warning("[OIL] signals unavailable: %s — continuing without macro", e)
+            signals = {}
 
+        yes_price = market.yes_price  # 0.0–1.0
+
+        # ── Price gate (same floor as all agents) ────────────────────────────
+        if yes_price > 0.75 or yes_price < 0.25:
+            return  # Outside tradeable range
+
+        # ── Macro context — direction only, never a hard gate ────────────────
         oil_score   = float(signals.get("oil_regime_score", 0) or 0)
-        market_risk = signals.get("overall_market_risk", "MEDIUM")
-        fng         = int(signals.get("fng_value", 50) or 50)
+        dxy         = signals.get("dxy_status", "FLAT")    or "FLAT"
         fed         = signals.get("fed_status", "NEUTRAL") or "NEUTRAL"
-        dxy         = signals.get("dxy_status", "FLAT") or "FLAT"
+        fng         = int(signals.get("fng_value", 50)     or 50)
+        curve       = signals.get("curve_status", "NORMAL") or "NORMAL"
+        market_risk = signals.get("overall_market_risk", "MEDIUM") or "MEDIUM"
 
-        # Hard macro gate — negative oil score = no edge in current regime
-        if oil_score < 0:
-            logger.debug("[OIL] Skipping %s — oil_regime_score=%.1f (negative)", market.ticker, oil_score)
-            return
-
-        yes_price = market.yes_price   # 0.0–1.0
-        no_price  = round(1.0 - yes_price, 4)
-
-        # Directional bias from macro regime
-        macro_bias_up = (
-            oil_score > 3
-            or market_risk in ("HIGH", "EXTREME")
-            or (fed == "DOVISH" and dxy == "FALLING")
+        bullish_oil = (
+            dxy == "FALLING"
+            or fed == "DOVISH"
+            or oil_score > 2
         )
-        macro_bias_down = (
-            fng < 30 and market_risk == "LOW"
-        ) or oil_score < -2
+        bearish_oil = (
+            dxy == "RISING"
+            or fed == "HAWKISH"
+            or oil_score < -2
+            or fng < 30
+        )
 
-        if yes_price < 0.5 and macro_bias_up:
-            # YES underpriced relative to macro regime
+        # ── Edge + direction from price position and macro ───────────────────
+        if yes_price < 0.5 and bullish_oil:
+            # Market underpricing YES — macro says oil going up
             side     = "yes"
-            # Edge = distance from 50¢ + macro premium
-            edge_pct = (0.5 - yes_price) * 100 + abs(oil_score) * 2
-        elif yes_price > 0.5 and macro_bias_down:
-            # NO underpriced — crowd overconfident on YES
+            edge_pct = (0.5 - yes_price) * 100 + abs(oil_score) * 1.5
+
+        elif yes_price > 0.5 and bearish_oil:
+            # Market overpricing YES — macro says oil going down
             side     = "no"
-            edge_pct = (yes_price - 0.5) * 100 + abs(oil_score) * 2
-        elif yes_price < 0.5 and oil_score >= 0:
-            # Weak bullish — neutral edge from price displacement only
+            edge_pct = (yes_price - 0.5) * 100 + abs(oil_score) * 1.5
+
+        elif yes_price < 0.4:
+            # Deeply discounted YES — take it regardless of macro
             side     = "yes"
-            edge_pct = (0.5 - yes_price) * 80  # reduced confidence
+            edge_pct = (0.5 - yes_price) * 100
+
+        elif yes_price > 0.6:
+            # Deeply overpriced YES — fade it regardless of macro
+            side     = "no"
+            edge_pct = (yes_price - 0.5) * 100
+
         else:
-            logger.debug("[OIL] No clear edge on %s (yes=%.2f oil_score=%.1f)", market.ticker, yes_price, oil_score)
+            # 0.4–0.6 range with no clear macro direction — skip
+            logger.debug("[OIL] No clear edge on %s (yes=%.2f, no macro bias)", market.ticker, yes_price)
             return
 
-        if edge_pct < _MIN_EDGE_PCT:
-            logger.debug("[OIL] Edge %.1f%% below %.1f%% minimum on %s", edge_pct, _MIN_EDGE_PCT, market.ticker)
+        # ── Minimum edge floor ───────────────────────────────────────────────
+        if edge_pct < 8.0:
+            logger.debug("[OIL] Edge %.1f%% below 8%% minimum on %s", edge_pct, market.ticker)
             return
 
-        # Conviction tier
-        if edge_pct >= 25 or (oil_score > 7 and market_risk == "EXTREME"):
+        # ── Conviction tier ──────────────────────────────────────────────────
+        if edge_pct >= 20 and abs(oil_score) > 4:
             conviction_tier = "HIGH_CONVICTION"
         else:
             conviction_tier = "GLITCH"
 
-        # Prices and levels
+        # ── Entry/target/stop ────────────────────────────────────────────────
         if side == "yes":
             entry_price  = yes_price
             target_price = round(min(0.90, yes_price + 0.15), 3)
             stop_price   = round(max(0.05, yes_price - 0.10), 3)
         else:
-            entry_price  = yes_price   # base_agent stores YES price for NO trades
+            entry_price  = yes_price  # build_signal uses YES price for NO trades
             target_price = round(max(0.10, yes_price - 0.15), 3)
             stop_price   = round(min(0.95, yes_price + 0.10), 3)
 
+        direction_label = "BULLISH" if bullish_oil else "BEARISH" if bearish_oil else "NEUTRAL"
+
         reasoning = (
-            f"OIL AGENT — {side.upper()} opportunity\n"
-            f"Edge: {edge_pct:.1f}% | Conviction: {'HIGH' if edge_pct > 20 else 'STANDARD'}\n"
-            f"Macro: oil_score={oil_score:+.1f} | risk={market_risk}\n"
-            f"Fed: {fed} | DXY: {dxy} | "
-            f"Curve: {signals.get('curve_status', '—')}\n"
-            f"F&G: {fng} ({signals.get('fng_status', '—')})\n"
-            f"Oil narrative: {signals.get('oil_narrative', '—')}\n"
-            f"TC: evaluate this oil contract against current geopolitical context "
-            f"(Iran war, Hormuz, OPEC) and confirm YES/NO edge."
+            f"OIL {side.upper()} | edge={edge_pct:.1f}% | "
+            f"yes_price={yes_price:.2f} | oil_score={oil_score:+.1f}\n"
+            f"DXY={dxy} FED={fed} FNG={fng} CURVE={curve}\n"
+            f"Direction: {direction_label} oil\n"
+            f"TC: confirm this WTI contract has real edge. "
+            f"Check current WTI spot price and whether {side.upper()} at "
+            f"{yes_price:.0%} makes sense given Iran war status and Hormuz situation."
         )
 
         signal = self.build_signal(
@@ -163,4 +175,6 @@ class OilAgent(BaseAgent):
             reasoning       = reasoning,
             game            = None,
         )
+        if signal is None:
+            return
         self.submit_signal(signal)
