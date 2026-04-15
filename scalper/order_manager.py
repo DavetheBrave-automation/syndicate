@@ -157,19 +157,23 @@ def place_order(
             state.add_position(position)
             state.remove_pending(ticker)
 
+            # Display cost = actual contract price paid.
+            # entry_cents stores YES price by convention; for NO trades, actual cost = 100 - entry_cents.
+            display_cost = (100 - entry_cents) if side.lower() == "no" else entry_cents
+
             logger.info(
-                "[PAPER] Simulated fill: %s %s %dx @ %d¢ | stop=%.0f¢ target=%.0f¢ | htsr=%s | rule=%s",
-                side.upper(), ticker, quantity, entry_cents,
+                "[PAPER] Simulated fill: %s %s %dx @ %d¢ (YES=%d¢) | stop=%.0f¢ target=%.0f¢ | htsr=%s | rule=%s",
+                side.upper(), ticker, quantity, display_cost, entry_cents,
                 stop_price, target_price, rule.get("hold_to_settlement", False), rule_id,
             )
             try:
                 from notifications.discord import post as _discord_post
-                _discord_post(f"PAPER FILL: {ticker} {side} @ {entry_cents}¢")
+                _discord_post(f"PAPER FILL: {ticker} {side} @ {display_cost}¢ (YES={entry_cents}¢)")
             except Exception:
                 pass
             try:
                 from notifications.telegram import post as _tg_post
-                _tg_post(f"PAPER FILL: {ticker} {side} @ {entry_cents}¢")
+                _tg_post(f"PAPER FILL: {ticker} {side} @ {display_cost}¢ (YES={entry_cents}¢)")
             except Exception:
                 pass
             return order_id

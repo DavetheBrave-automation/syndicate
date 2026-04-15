@@ -166,31 +166,41 @@ class AxiomAgent(BaseAgent):
             return
 
         # ── Direction — always buy the CHEAP UNDERDOG side (25¢-35¢ per contract) ──
-        # When YES > 50¢: YES is "expensive" consensus side. Buy NO at (1-yes) ≈ 25-35¢.
-        #   Example: YES=70¢ → buy NO at 30¢. Win when YES falls to 10¢ (NO=90¢).
-        # When YES < 50¢: NO is "expensive". Buy YES directly at yes_price ≈ 25-35¢.
-        #   Example: YES=28¢ → buy YES at 28¢. Win when YES rises to 90¢.
+        # RULE: yes_mid ≥ 0.50 → YES is expensive → buy NO at cost = 1 - yes_price
+        #       yes_mid < 0.50 → YES is cheap    → buy YES at cost = yes_price
+        #
+        # PROOF CHECK (logged every entry):
+        #   yes=0.74 → side=no,  cost=0.26 ✓  (paying 26¢ for NO)
+        #   yes=0.26 → side=yes, cost=0.26 ✓  (paying 26¢ for YES)
         #
         # entry_price convention: ALWAYS stores YES price in 0..1 decimal.
-        # order_manager and _calc_pnl_pct derive no_cost as (1 - entry_price).
+        # order_manager derives NO cost as (1 - entry_price) for PNL calc.
         if yes_price > 0.50:
-            side         = "no"
-            entry_price  = round(yes_price, 4)           # store YES price (convention)
-            no_cost      = round(1.0 - yes_price, 4)     # actual cost of NO contract
-            target_price = round(min(0.95, no_cost + displacement * 0.3), 3)
-            stop_price   = round(max(0.05, no_cost - 0.10), 3)
+            side           = "no"
+            our_entry_cost = round(1.0 - yes_price, 4)   # what NO actually costs
+            entry_price    = round(yes_price, 4)           # store YES price (convention)
+            target_price   = round(min(0.95, our_entry_cost + displacement * 0.3), 3)
+            stop_price     = round(max(0.05, our_entry_cost - 0.10), 3)
         else:
-            side         = "yes"
-            entry_price  = round(yes_price, 4)
-            target_price = round(min(0.95, yes_price + displacement * 0.3), 3)
-            stop_price   = round(max(0.05, yes_price - 0.10), 3)
-            no_cost      = None  # not applicable for YES side
+            side           = "yes"
+            our_entry_cost = round(yes_price, 4)           # what YES actually costs
+            entry_price    = round(yes_price, 4)
+            target_price   = round(min(0.95, our_entry_cost + displacement * 0.3), 3)
+            stop_price     = round(max(0.05, our_entry_cost - 0.10), 3)
+
+        logger.info(
+            "[AXIOM] evaluate: ticker=%s yes_mid=%.2f side=%s cost=%.2f "
+            "edge=%.1f%% conv=%s days=%.0f",
+            market.ticker, yes_price, side, our_entry_cost,
+            edge_pct, conviction_tier, days,
+        )
 
         reasoning = (
-            f"Consensus: yes_price={yes_price:.2f} side={side} "
-            f"cost={'%.2f'%(no_cost if no_cost else yes_price)}¢ "
-            f"(displacement={displacement:.1%}), {days}d to settlement, "
-            f"vol=${market.volume_dollars:,.0f} — math edge {edge_pct:.1f}%"
+            f"AXIOM {side.upper()} | yes_mid={yes_price:.2f} | "
+            f"cost={our_entry_cost:.2f} | edge={edge_pct:.1f}% | "
+            f"conv={conviction_tier} | HTSR=True | "
+            f"displacement={displacement:.1%} | {days}d | "
+            f"vol=${market.volume_dollars:,.0f}"
         )
 
         signal = self.build_signal(
@@ -236,37 +246,46 @@ class AxiomAgent(BaseAgent):
         if yes_price > 1.0:
             yes_price = yes_price / 100.0
 
-        if position.side == "yes":
-            our_side   = yes_price          # YES holder profits as YES rises
-            their_side = 1.0 - yes_price
-        else:
-            our_side   = 1.0 - yes_price   # NO holder profits as YES falls
+        # Compute our side and actual entry cost
+        # NO holder profits as YES falls (our_side = 1 - YES rises toward 1.0)
+        # YES holder profits as YES rises toward 1.0
+        if position.side == "no":
+            our_side   = 1.0 - yes_price
             their_side = yes_price
+            our_entry  = (100 - position.entry_price) / 100.0  # actual NO cost paid
+        else:
+            our_side   = yes_price
+            their_side = 1.0 - yes_price
+            our_entry  = position.entry_price / 100.0           # actual YES cost paid
 
-        # Log for debugging — confirms the calculation is correct
-        logger.debug(
-            "[AXIOM] should_exit check: side=%s yes_price=%.2f our_side=%.2f their_side=%.2f",
-            position.side, yes_price, our_side, their_side,
+        pnl_pct = (our_side - our_entry) / our_entry if our_entry > 0 else 0.0
+
+        logger.info(
+            "[AXIOM] should_exit: side=%s yes=%.2f our_side=%.2f "
+            "our_entry=%.2f pnl=%.0f%%",
+            position.side, yes_price, our_side, our_entry, pnl_pct * 100,
         )
 
         if our_side >= 0.90:
-            logger.info("[AXIOM] Exit: win locked — our side %.0f%%", our_side * 100)
+            logger.info("[AXIOM] EXIT: win locked — our_side=%.0f%%", our_side * 100)
             return True
         if their_side >= 0.90:
-            logger.info("[AXIOM] Exit: settlement risk — their side %.0f%%", their_side * 100)
+            logger.info("[AXIOM] EXIT: settlement risk — their_side=%.0f%%", their_side * 100)
             return True
         if our_side >= 0.85:
-            logger.info("[AXIOM] Exit: profit target — our side %.0f%%", our_side * 100)
+            logger.info("[AXIOM] EXIT: profit target — our_side=%.0f%%", our_side * 100)
             return True
         if our_side <= 0.15:
-            logger.info("[AXIOM] Exit: stop loss — our side %.0f%%", our_side * 100)
+            logger.info("[AXIOM] EXIT: stop loss — our_side=%.0f%%", our_side * 100)
             return True
 
-        minutes_to_settle = market.days_to_settlement * 1440.0
-        if minutes_to_settle < 60:
-            our_entry = position.entry_price / 100.0 if position.side == "yes" else (100 - position.entry_price) / 100.0
-            if our_side < our_entry:
-                logger.info("[AXIOM] Exit: time stop — underwater with <1hr to settlement")
-                return True
+        # Time stop — only if genuinely underwater ≥ 20% with <1hr to settlement
+        minutes_left = market.days_to_settlement * 1440.0
+        if minutes_left < 60 and pnl_pct < -0.20:
+            logger.info(
+                "[AXIOM] EXIT: time stop — underwater=%.0f%% minutes_left=%.0f",
+                pnl_pct * 100, minutes_left,
+            )
+            return True
 
-        return False
+        return False  # HOLD — thesis intact
