@@ -596,16 +596,24 @@ class ScalperEngine:
         if market is None:
             return False, "no market data"
 
+        # Safety normalize — market always returns 0..1 but guard defensively
         yes_price = market.yes_price
+        if yes_price > 1.0:
+            yes_price = yes_price / 100.0
 
         if position.side == "yes":
-            our_side   = yes_price
+            our_side   = yes_price           # YES holder profits as YES rises
             their_side = 1.0 - yes_price
             our_entry  = position.entry_price / 100.0
         else:
-            our_side   = 1.0 - yes_price
+            our_side   = 1.0 - yes_price    # NO holder profits as YES FALLS
             their_side = yes_price
             our_entry  = (100 - position.entry_price) / 100.0
+
+        logger.debug(
+            "[HTSR] exit check: %s side=%s yes_price=%.2f our_side=%.2f their_side=%.2f our_entry=%.2f",
+            position.ticker, position.side, yes_price, our_side, their_side, our_entry,
+        )
 
         if our_side >= 0.90:
             return True, f"Win locked — our side at {our_side:.0%}"
@@ -618,8 +626,8 @@ class ScalperEngine:
 
         minutes_to_settle = market.days_to_settlement * 1440.0
         if minutes_to_settle < 60 and our_entry > 0:
-            pnl_pct = (our_side - our_entry) / our_entry
-            if pnl_pct < 0:
+            if our_side < our_entry:
+                pnl_pct = (our_side - our_entry) / our_entry
                 return True, f"Time stop — underwater {pnl_pct:.0%} with <1hr to settlement"
 
         return False, "Hold — thesis intact"

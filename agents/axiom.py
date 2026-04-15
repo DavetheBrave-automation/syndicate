@@ -106,7 +106,18 @@ class AxiomAgent(BaseAgent):
           edge_pct     = displacement * time_factor * vol_factor * 100
           macro boost  = +15-20% if asset class matches MacroLLM top_opportunity_class
         """
-        displacement = abs(market.yes_price - 0.5)
+        # Normalize yes_price to 0..1 float (safety — market always returns 0..1 but belt-and-suspenders)
+        yes_price = market.yes_price
+        if yes_price > 1.0:
+            yes_price = yes_price / 100.0
+
+        # Belt-and-suspenders gate inside evaluate() — should_evaluate() already checked,
+        # but guard again: reject near-settled contracts where there's no room to run
+        if yes_price > 0.75 or yes_price < 0.25:
+            logger.debug("[AXIOM] evaluate() gate: yes_price=%.2f outside 25-75¢ — skip", yes_price)
+            return
+
+        displacement = abs(yes_price - 0.5)
         days         = market.days_to_settlement
 
         time_factor  = max(0.1, 1.0 - days * 0.3)
@@ -154,25 +165,30 @@ class AxiomAgent(BaseAgent):
             )
             return
 
-        # ── Direction — bet WITH extreme-price consensus ─────────────────────
-        if market.yes_price > 0.5:
-            side         = "yes"
-            entry_price  = round(market.yes_price, 4)
-            target_price = round(min(0.95, market.yes_price + displacement * 0.3), 3)
-            stop_price   = round(max(0.05, market.yes_price - 0.10), 3)
-        else:
+        # ── Direction — always buy the CHEAP UNDERDOG side (25¢-35¢ per contract) ──
+        # When YES > 50¢: YES is "expensive" consensus side. Buy NO at (1-yes) ≈ 25-35¢.
+        #   Example: YES=70¢ → buy NO at 30¢. Win when YES falls to 10¢ (NO=90¢).
+        # When YES < 50¢: NO is "expensive". Buy YES directly at yes_price ≈ 25-35¢.
+        #   Example: YES=28¢ → buy YES at 28¢. Win when YES rises to 90¢.
+        #
+        # entry_price convention: ALWAYS stores YES price in 0..1 decimal.
+        # order_manager and _calc_pnl_pct derive no_cost as (1 - entry_price).
+        if yes_price > 0.50:
             side         = "no"
-            # entry_price MUST store the YES price in cents-decimal, not the NO price.
-            # order_manager._compute_pnl and scalper_engine._calc_pnl_pct both use
-            # no_entry = (100 - entry_price_cents) / 100 = 1 - YES_price = NO price.
-            # Storing NO price here inverts the formula → fake +68% gains → instant churn.
-            entry_price  = round(market.yes_price, 4)
-            no_cost      = round(1.0 - market.yes_price, 4)
+            entry_price  = round(yes_price, 4)           # store YES price (convention)
+            no_cost      = round(1.0 - yes_price, 4)     # actual cost of NO contract
             target_price = round(min(0.95, no_cost + displacement * 0.3), 3)
             stop_price   = round(max(0.05, no_cost - 0.10), 3)
+        else:
+            side         = "yes"
+            entry_price  = round(yes_price, 4)
+            target_price = round(min(0.95, yes_price + displacement * 0.3), 3)
+            stop_price   = round(max(0.05, yes_price - 0.10), 3)
+            no_cost      = None  # not applicable for YES side
 
         reasoning = (
-            f"Consensus: yes_price={market.yes_price:.2f} "
+            f"Consensus: yes_price={yes_price:.2f} side={side} "
+            f"cost={'%.2f'%(no_cost if no_cost else yes_price)}¢ "
             f"(displacement={displacement:.1%}), {days}d to settlement, "
             f"vol=${market.volume_dollars:,.0f} — math edge {edge_pct:.1f}%"
         )
