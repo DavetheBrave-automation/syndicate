@@ -127,7 +127,14 @@ def place_order(
         # ── Paper mode ──────────────────────────────────────────────────────
         if _is_paper_mode():
             order_id    = f"PAPER-{ticker}-{int(time.time())}"
-            entry_cents = int(round(price * 100))
+            # Convention: entry_price always stores YES price in cents.
+            # For YES side: price = yes_price directly.
+            # For NO  side: price = contract_price = 1 - yes_price,
+            #               so yes_price = 1 - price.
+            if side.lower() == "no":
+                entry_cents = int(round((1.0 - price) * 100))
+            else:
+                entry_cents = int(round(price * 100))
 
             position = Position(
                 ticker         = ticker,
@@ -182,7 +189,11 @@ def place_order(
             state.remove_pending(ticker)
             return None
 
-        entry_cents = int(round(aggressive_price * 100))
+        # Convention: entry_price always stores YES price in cents.
+        if side.lower() == "no":
+            entry_cents = int(round((1.0 - aggressive_price) * 100))
+        else:
+            entry_cents = int(round(aggressive_price * 100))
 
         position = Position(
             ticker         = ticker,
