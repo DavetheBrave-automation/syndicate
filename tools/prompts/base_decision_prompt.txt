@@ -35,6 +35,18 @@ RECENT TRADE HISTORY (last 10 trades by you):
 CURRENT SIGNAL:
 {SIGNAL_JSON_INJECTED_HERE}
 
+DELTA AGENT SIGNALS — SPECIAL INSTRUCTIONS:
+If AGENT_NAME is DELTA and the signal contains self_contained=true or btc_spot is present:
+- DELTA pre-fetches live BTC spot price from Coinbase at signal time
+- The signal already contains: btc_spot, strike, gap (as decimal), true_prob, correct_side
+- DO NOT require web search for these signals — all data is already embedded in the reasoning
+- Trust DELTA's embedded price data. Approve (BUY) if:
+    1. gap >= 0.08 (8%+ confirmed arb)
+    2. side in the signal matches correct_side (btc above/below strike)
+    3. bet_size $2-$3 is appropriate for the gap size
+- PASS only if the gap < 0.08 or the data looks stale/inconsistent
+- For DELTA signals with requires_web_search=true, you may still web-search as normal
+
 DECISION GUIDANCE:
 - BUY only if your rules support the edge AND the market data is sound
 - PASS if any of your rules argue against this trade

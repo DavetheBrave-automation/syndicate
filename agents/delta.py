@@ -2,16 +2,18 @@
 delta.py — DELTA Arbitrage Agent.
 
 Strategy: Find contracts where Kalshi price differs significantly from external consensus.
-DELTA always requires TC web search — never evaluates without current external data.
+
+For KXBTCD (BTC price) markets: pre-fetches live BTC spot from Coinbase at signal time
+and embeds it in the signal. TC reads the embedded data — no web search needed.
+
+For other series (politics, sports, etc.): still requires TC web search to validate.
 
 Rules:
   - Minimum 8% gap between Kalshi and external consensus required
   - Never trade if external consensus is older than 48 hours
-  - Kalshi lags PredictIt by 3-5 pp on political markets — factor this in
-  - Tennis: compare to ATP live win probability when available
   - Volume > 5000 (arb only works in liquid markets)
   - Exit when gap closes to 2%
-  - This agent requires TC web search — never evaluate without it
+  - BTC: fetch spot from Coinbase, compare to strike, compute gap self-contained
   - YES side: buy when Kalshi underprices an outcome vs external consensus
   - NO side: buy when Kalshi overprices an outcome vs external consensus
   - Never buy NO above 80¢ YES — too expensive for arb play
@@ -20,6 +22,8 @@ Rules:
 import os
 import sys
 import logging
+
+import requests
 
 _SYNDICATE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _SYNDICATE_ROOT)
@@ -40,6 +44,26 @@ _ARB_ELIGIBLE_PREFIXES = {
     "KXNBA", "KXMLB", "KXNHL", "KXNFL", "KXPGATOUR",               # major sports
     "KXBTCD", "KXETHUSD",                                            # crypto
 }
+
+
+def _get_btc_spot() -> float | None:
+    """Fetch live BTC/USD spot price from Coinbase. Embedded in signal so TC needs no web search."""
+    try:
+        r = requests.get(
+            "https://api.coinbase.com/v2/prices/BTC-USD/spot",
+            timeout=5,
+        )
+        return float(r.json()["data"]["amount"])
+    except Exception:
+        return None
+
+
+def _parse_btc_strike(ticker: str) -> float | None:
+    """Extract strike price from KXBTCD ticker. e.g. 'KXBTCD-26APR1617-T74999.99' → 74999.99"""
+    try:
+        return float(ticker.split("-T")[-1])
+    except Exception:
+        return None
 
 
 def _extract_series(ticker: str) -> str:
@@ -80,7 +104,8 @@ class DeltaAgent(BaseAgent):
         "Tennis: compare to ATP live win probability tools when available",
         "Crypto: compare to options implied volatility for pricing sanity check",
         "Exit when gap closes to 2% — arbitrage is complete",
-        "This agent requires TC web search — never evaluate without it",
+        "BTC markets: spot price pre-fetched from Coinbase — no web search needed, trust embedded data",
+        "Other markets: TC web search still required to validate gap",
         "Volume must exceed $5000 — arb only works in liquid markets",
         "YES side: buy when Kalshi underprices vs external consensus",
         "NO side: buy when Kalshi overprices vs external consensus",
@@ -136,32 +161,108 @@ class DeltaAgent(BaseAgent):
 
     def evaluate(self, market, game=None) -> None:
         """
-        Build a signal that tells TC to web-search for external consensus price.
-        TC computes the actual gap and decides whether to execute.
+        Build an arb signal.
 
-        YES side: buy when Kalshi UNDERPRICES the outcome vs external consensus
-        NO side:  buy when Kalshi OVERPRICES the outcome vs external consensus
-        Never buy NO above 80¢ YES (NO costs < 20¢ — needs huge move to profit).
+        For KXBTCD series: pre-fetch BTC spot from Coinbase, compute gap directly.
+        All data embedded in signal — TC needs NO web search.
+
+        For other series: signal includes search query; TC does web search to validate.
+
+        YES side: Kalshi UNDERPRICES (buy YES → profits when market moves up)
+        NO side:  Kalshi OVERPRICES  (buy NO  → profits when market moves down)
         """
-        series     = _extract_series(market.ticker)
-        yes_price  = market.yes_price
-        no_price   = round(1.0 - yes_price, 4)
-        search_q   = _build_search_query(market)
+        series    = _extract_series(market.ticker)
+        yes_price = market.yes_price
+        no_price  = round(1.0 - yes_price, 4)
 
-        # DELTA submits signals at HIGH_CONVICTION by default;
-        # TC upgrades to PROPHECY if gap > 20% after web search.
+        # ── BTC SERIES: self-contained arb with embedded live price ────────────
+        if market.ticker.upper().startswith("KXBTCD"):
+            btc_spot = _get_btc_spot()
+            if btc_spot is None:
+                logger.warning("[DELTA] BTC spot fetch failed for %s — skipping", market.ticker)
+                return
+
+            strike = _parse_btc_strike(market.ticker)
+            if strike is None:
+                logger.warning("[DELTA] Could not parse strike from %s — skipping", market.ticker)
+                return
+
+            # Binary true probability: BTC above strike → YES should win (p≈1.0)
+            #                          BTC below strike → NO  should win (p≈0.0)
+            true_prob = 1.0 if btc_spot > strike else 0.0
+            gap       = abs(yes_price - true_prob)
+
+            if gap < 0.08:
+                logger.debug(
+                    "[DELTA] Gap too small: %s btc=$%.0f strike=$%.0f gap=%.0f%%",
+                    market.ticker, btc_spot, strike, gap * 100,
+                )
+                return
+
+            # Direction: buy the side that's currently mispriced
+            if btc_spot > strike:
+                side = "yes"   # BTC above → YES should win → Kalshi underpriced YES
+            else:
+                side = "no"    # BTC below → NO should win  → Kalshi underpriced NO
+
+            edge_pct        = round(gap * 100, 2)
+            conviction_tier = "PROPHECY" if gap >= 0.20 else "HIGH_CONVICTION"
+
+            # entry_price convention: always YES price in 0..1
+            entry_price  = round(yes_price, 4)
+            our_cost     = round(yes_price if side == "yes" else no_price, 4)
+            target_price = round(min(0.95, our_cost + gap * 0.5), 4)
+            stop_price   = round(max(0.05, our_cost - 0.10), 4)
+
+            reasoning = (
+                f"DELTA ARB | gap={gap:.0%} | "
+                f"btc_spot=${btc_spot:,.0f} | strike=${strike:,.0f} | "
+                f"btc_{'above' if btc_spot > strike else 'below'}_strike | "
+                f"kalshi_yes={yes_price:.0%} | true_prob={true_prob:.0%} | "
+                f"correct_side={side} | edge={edge_pct:.1f}% | "
+                f"self_contained=True — no web search needed"
+            )
+
+            signal = self.build_signal(
+                market, conviction_tier, edge_pct, side,
+                entry_price, target_price, stop_price, reasoning, game,
+            )
+            if signal is None:
+                return
+
+            # Embed computed arb data directly — TC reads this, no web search
+            sig = signal["signal"]
+            sig["self_contained"]    = True
+            sig["requires_web_search"] = False
+            sig["btc_spot"]          = btc_spot
+            sig["strike"]            = strike
+            sig["gap"]               = round(gap, 4)
+            sig["true_prob"]         = true_prob
+            sig["arb_series"]        = series
+            sig["exit_trigger"]      = "gap closes to ≤ 2% or our side ≥ 85¢"
+
+            if market.days_to_settlement > 1:
+                sig["max_size_dollars"] = 2
+                sig["lottery_ticket"]   = True
+
+            logger.info(
+                "[DELTA] BTC arb signal: %s side=%s YES=%d¢ btc=$%.0f strike=$%.0f gap=%.0f%%",
+                market.ticker, side, int(yes_price * 100), btc_spot, strike, gap * 100,
+            )
+            self.submit_signal(signal)
+            return
+
+        # ── ALL OTHER SERIES: web-search flow (unchanged) ──────────────────────
+        search_q        = _build_search_query(market)
         conviction_tier = "HIGH_CONVICTION"
-        edge_pct_est    = _MIN_EDGE_PCT + 2.0  # TC will compute actual after search
+        edge_pct_est    = _MIN_EDGE_PCT + 2.0
 
-        # Entry parameters — TC will refine based on search results
         if yes_price < 0.50:
-            # Could be YES (underpriced) or NO (correctly priced) — TC decides after search
             side         = "yes"
             entry_price  = round(yes_price, 4)
             target_price = round(min(0.90, yes_price * 1.20), 4)
             stop_price   = round(max(0.05, yes_price * 0.80), 4)
         else:
-            # Could be NO (overpriced) or YES (correctly priced) — TC decides after search
             side         = "no"
             entry_price  = round(yes_price, 4)
             target_price = round(max(0.10, yes_price * 0.80), 4)
@@ -169,35 +270,29 @@ class DeltaAgent(BaseAgent):
 
         reasoning = (
             f"DELTA: Potential arb on {market.ticker}. "
-            f"Kalshi YES={yes_price:.2f} ({yes_price*100:.0f}¢), NO={no_price:.2f} ({no_price*100:.0f}¢). "
+            f"Kalshi YES={yes_price:.2f} ({yes_price*100:.0f}¢). "
             f"Requires TC web search: [{search_q}] "
-            f"Calculate gap vs external consensus. "
-            f"Execute if gap ≥ 8%. PROPHECY if gap ≥ 20%. "
-            f"Exit trigger: gap closes to ≤ 2%. [web_search=True]"
+            f"Execute if gap ≥ 8%."
         )
 
         signal = self.build_signal(
             market, conviction_tier, edge_pct_est, side,
             entry_price, target_price, stop_price, reasoning, game,
         )
+        if signal is None:
+            return
 
-        # Lottery ticket size cap: multi-day long shots hard-capped at $2
         if market.days_to_settlement > 1:
             signal["signal"]["max_size_dollars"] = 2
             signal["signal"]["lottery_ticket"]   = True
 
-        # Tag for TC: web search is mandatory
         signal["signal"]["requires_web_search"] = True
         signal["signal"]["search_query"]         = search_q
         signal["signal"]["arb_series"]           = series
-        signal["signal"]["kalshi_yes_price"]     = yes_price
-        signal["signal"]["kalshi_no_price"]      = no_price
         signal["signal"]["min_gap_required"]     = 0.08
-        signal["signal"]["prophecy_gap"]         = 0.20
-        signal["signal"]["exit_trigger"]         = "gap closes to ≤ 2%"
 
         self.submit_signal(signal)
         logger.info(
-            "[DELTA] Arb signal: %s YES=%d¢ | search: %s",
+            "[DELTA] Arb signal (web): %s YES=%d¢ | search: %s",
             market.ticker, int(yes_price * 100), search_q[:60],
         )
