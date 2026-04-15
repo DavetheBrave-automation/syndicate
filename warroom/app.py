@@ -82,6 +82,21 @@ def _load_agent_memories() -> dict[str, dict]:
     return memories
 
 
+def _load_meta() -> dict:
+    """Load syndicate_meta key/value pairs."""
+    if not os.path.exists(_DB_PATH):
+        return {}
+    try:
+        conn = sqlite3.connect(_DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT key, value FROM syndicate_meta")
+        result = {r[0]: r[1] for r in cur.fetchall()}
+        conn.close()
+        return result
+    except Exception:
+        return {}
+
+
 def _load_trades() -> list[dict]:
     if not os.path.exists(_DB_PATH):
         return []
@@ -90,7 +105,7 @@ def _load_trades() -> list[dict]:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute("""
-            SELECT ticker, side, entry_price, exit_price, quantity,
+            SELECT id, ticker, side, entry_price, exit_price, quantity,
                    pnl, exit_reason, agent_name, contract_class,
                    entry_time, exit_time, hold_seconds
             FROM syndicate_trades
@@ -168,6 +183,10 @@ def _get_agent_trade_history(agent_name: str) -> list:
             pnl         = float(pnl or 0)
             entry_cents = int(entry_cents or 0)
             exit_cents  = int(round(float(exit_raw or 0) * 100)) if exit_raw else 0
+            # Display actual contract cost: for NO trades entry_cents is YES price by convention
+            display_entry = (100 - entry_cents) if side == "no" else entry_cents
+            # Exit: for NO trades show NO value (100 - YES exit%)
+            display_exit  = (100 - exit_cents) if side == "no" else exit_cents
             ticker_short = ticker.split("-")[-1] if ticker else "?"
             direction    = "↑ YES" if side == "yes" else "↓ NO"
             pnl_str      = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
@@ -176,8 +195,8 @@ def _get_agent_trade_history(agent_name: str) -> list:
                 "ticker_short": ticker_short,
                 "side":         side,
                 "qty":          qty,
-                "entry":        entry_cents,
-                "exit":         exit_cents,
+                "entry":        display_entry,
+                "exit":         display_exit,
                 "pnl":          pnl,
                 "pnl_str":      pnl_str,
                 "reason":       (reason or "")[:32],
@@ -204,6 +223,9 @@ def dashboard():
     log_lines   = _tail_log(40)
     agent_stats = _load_agent_stats()
     leaderboard = sorted(agent_stats.values(), key=lambda x: -x["pnl"])
+    meta        = _load_meta()
+    valid_from_id = int(meta.get("data_valid_from_trade_id", 0))
+    valid_from_ts = meta.get("data_valid_from", "")[:10]  # YYYY-MM-DD
 
     # Validation phase
     vp   = cfg.get("validation_phase", {})
@@ -225,10 +247,17 @@ def dashboard():
             "history":  _get_agent_trade_history(name),
         })
 
-    # Recent trades (last 15)
+    # Recent trades (last 15) — flag pre-fix records, compute display cost
     recent_trades = trades[:15]
     for t in recent_trades:
-        t["pnl_sign"] = "+" if float(t.get("pnl") or 0) >= 0 else ""
+        t["pnl_sign"]  = "+" if float(t.get("pnl") or 0) >= 0 else ""
+        t["pre_fix"]   = int(t.get("id") or 0) <= valid_from_id
+        # Show actual contract cost: for NO trades entry_price (DB) is YES price by convention
+        ep  = int(t.get("entry_price") or 0)
+        exp = int((float(t.get("exit_price") or 0)) * 100)
+        is_no = t.get("side") == "no"
+        t["display_entry_price"] = (100 - ep)  if is_no else ep
+        t["display_exit_price"]  = (100 - exp) if is_no else exp
 
     # Macro signal rows
     macro_rows = [
@@ -250,18 +279,20 @@ def dashboard():
 
     return render_template(
         "dashboard.html",
-        mode          = "PAPER" if cfg.get("syndicate", {}).get("paper_mode", True) else "LIVE",
-        now_utc       = now_utc,
-        roster        = roster,
-        macro_rows    = macro_rows,
-        vp            = vp,
-        leaderboard   = leaderboard,
-        recent_trades = recent_trades,
-        log_lines     = log_lines,
-        total_pnl     = total_pnl,
-        total_trades  = total_trades,
-        signals       = signals,
-        max_exposure  = risk.get("max_total_exposure", 50),
+        mode           = "PAPER" if cfg.get("syndicate", {}).get("paper_mode", True) else "LIVE",
+        now_utc        = now_utc,
+        roster         = roster,
+        macro_rows     = macro_rows,
+        vp             = vp,
+        leaderboard    = leaderboard,
+        recent_trades  = recent_trades,
+        log_lines      = log_lines,
+        total_pnl      = total_pnl,
+        total_trades   = total_trades,
+        signals        = signals,
+        max_exposure   = risk.get("max_total_exposure", 50),
+        valid_from_id  = valid_from_id,
+        valid_from_ts  = valid_from_ts,
     )
 
 

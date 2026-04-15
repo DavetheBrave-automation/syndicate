@@ -216,15 +216,19 @@ tr:hover td{background:#131313}
   <div class="col-wide">
     <div class="sec">
       <h2>📊 Recent Trades</h2>
+      {% if valid_from_ts %}
+      <div style="font-size:9px;color:#fcd34d;margin-bottom:6px">⚠ Trades ≤ ID {{ valid_from_id }} (pre-{{ valid_from_ts }}) have unreliable PNL — NO entry_price bug</div>
+      {% endif %}
       <table>
-        <tr><th>Ticker</th><th>Agent</th><th>Side</th><th>Entry</th><th>Exit</th><th>P&amp;L</th><th>Reason</th></tr>
+        <tr><th>#</th><th>Ticker</th><th>Agent</th><th>Side</th><th>Entry</th><th>Exit</th><th>P&amp;L</th><th>Reason</th></tr>
         {% for t in recent_trades %}
-        <tr>
-          <td class="ts">{{ t.ticker[:28] }}</td>
+        <tr{% if t.pre_fix %} style="opacity:0.5" title="Pre-fix: PNL may be inaccurate"{% endif %}>
+          <td class="dim" style="font-size:9px">{{ t.id }}{% if t.pre_fix %}<span style="color:#fcd34d"> ⚠</span>{% endif %}</td>
+          <td class="ts">{{ t.ticker[:22] }}</td>
           <td class="{{ 'y' if t.agent_name == 'OIL' else '' }}">{{ t.agent_name or '—' }}</td>
           <td class="{{ 'g' if t.side == 'yes' else 'r' }}">{{ (t.side or '—')|upper }}</td>
-          <td class="ts">{{ t.entry_price }}¢</td>
-          <td class="ts">{{ ((t.exit_price or 0)*100)|int }}¢</td>
+          <td class="ts">{{ t.display_entry_price }}¢</td>
+          <td class="ts">{{ t.display_exit_price }}¢</td>
           <td class="{{ 'pnl-pos' if (t.pnl or 0) >= 0 else 'pnl-neg' }}">
             {{ t.pnl_sign }}${{ '%.3f'|format(t.pnl or 0) }}
           </td>
@@ -232,7 +236,7 @@ tr:hover td{background:#131313}
         </tr>
         {% endfor %}
         {% if not recent_trades %}
-        <tr><td colspan="7" class="dim" style="padding:8px">No trades recorded yet.</td></tr>
+        <tr><td colspan="8" class="dim" style="padding:8px">No trades recorded yet.</td></tr>
         {% endif %}
       </table>
     </div>
