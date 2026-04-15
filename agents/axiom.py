@@ -73,6 +73,10 @@ class AxiomAgent(BaseAgent):
         if market.days_to_settlement > MAX_DAYS:
             return False
 
+        # Block contracts expiring within 2 hours — already settled or nearly so
+        if market.days_to_settlement * 1440 < 120:
+            return False
+
         if market.volume_dollars < MIN_VOLUME:
             return False
 
@@ -154,7 +158,7 @@ class AxiomAgent(BaseAgent):
             pass   # signals unavailable — continue with unmodified edge
 
         # ── Conviction tier ──────────────────────────────────────────────────
-        if days == 0 and displacement >= 0.35 and edge_pct >= 15.0:
+        if days < 1.0 and displacement >= 0.35 and edge_pct >= 15.0:
             conviction_tier = "PROPHECY"
         elif edge_pct >= MIN_EDGE:
             conviction_tier = "HIGH_CONVICTION"

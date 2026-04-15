@@ -272,7 +272,8 @@ def dashboard():
     ]
 
     # Total trades and P&L
-    total_pnl    = round(sum(float(t.get("pnl") or 0) for t in trades), 2)
+    total_pnl    = round(sum(float(t.get("pnl") or 0) for t in trades
+                             if int(t.get("id") or 0) > valid_from_id), 2)
     total_trades = len(trades)
 
     now_utc = datetime.now(timezone.utc).strftime("%H:%M UTC")
