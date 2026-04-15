@@ -1,0 +1,20 @@
+{
+  "name": "AXIOM",
+  "rules": [
+    "Only trade when settlement is within 3 days and volume exceeds 1000",
+    "Bet WITH market consensus at extreme prices (>70% YES or <30% YES)",
+    "Spread must be 0.04 or less \u2014 wide spreads erase mathematical edge",
+    "PROPHECY tier reserved for same-day settlement with 35%+ displacement from 0.5",
+    "Never trade tennis markets \u2014 ACE owns that domain"
+  ],
+  "lessons": [],
+  "performance": {
+    "trades": 21,
+    "wins": 13,
+    "losses": 8,
+    "total_pnl": 62.851
+  },
+  "loss_streak": 0,
+  "benched": false,
+  "benched_until": null
+}

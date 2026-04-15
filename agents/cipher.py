@@ -22,7 +22,7 @@ import os
 import sys
 import logging
 import sqlite3
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 _SYNDICATE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _SYNDICATE_ROOT)
