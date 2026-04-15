@@ -7,15 +7,15 @@
 <meta http-equiv="refresh" content="60">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#060606;color:#c8c8c8;font-family:'Courier New',monospace;font-size:12px;padding:10px}
-a{color:#4499ff;text-decoration:none}
+body{background:#060606;color:#f0f4ff;font-family:'Courier New',monospace;font-size:12px;padding:10px}
+a{color:#93c5fd;text-decoration:none}
 
 /* Header */
 .hdr{border-bottom:1px solid #222;padding-bottom:8px;margin-bottom:12px}
 .hdr h1{font-size:14px;color:#00ff88;letter-spacing:2px}
-.hdr .sub{color:#444;font-size:10px;margin-top:3px}
-.badge-paper{background:#001a33;color:#4499ff;padding:1px 6px;border-radius:2px;font-size:9px;border:1px solid #003366}
-.badge-live{background:#330000;color:#ff4444;padding:1px 6px;border-radius:2px;font-size:9px;border:1px solid #660000}
+.hdr .sub{color:#a0aec0;font-size:10px;margin-top:3px}
+.badge-paper{background:#001a33;color:#93c5fd;padding:1px 6px;border-radius:2px;font-size:9px;border:1px solid #003366}
+.badge-live{background:#330000;color:#ff8fa3;padding:1px 6px;border-radius:2px;font-size:9px;border:1px solid #660000}
 
 /* Grid */
 .row{display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap}
@@ -25,51 +25,70 @@ a{color:#4499ff;text-decoration:none}
 
 /* Sections */
 .sec{background:#0e0e0e;border:1px solid #1c1c1c;border-radius:4px;padding:10px;height:100%}
-.sec h2{font-size:9px;color:#444;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;border-bottom:1px solid #1a1a1a;padding-bottom:4px}
+.sec h2{font-size:9px;color:#ffffff;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;border-bottom:1px solid #1a1a1a;padding-bottom:4px}
 
 /* Tables */
 table{width:100%;border-collapse:collapse;font-size:11px}
-th{color:#444;padding:3px 5px;text-align:left;font-weight:normal;border-bottom:1px solid #1a1a1a;font-size:9px;text-transform:uppercase;letter-spacing:1px}
-td{padding:3px 5px;border-bottom:1px solid #111;vertical-align:top}
+th{color:#ffffff;padding:3px 5px;text-align:left;font-weight:normal;border-bottom:1px solid #1a1a1a;font-size:9px;text-transform:uppercase;letter-spacing:1px}
+td{padding:3px 5px;border-bottom:1px solid #111;vertical-align:top;color:#f0f4ff;font-size:13px}
 tr:hover td{background:#131313}
 
 /* Colors */
-.g{color:#00ff88}.r{color:#ff4444}.y{color:#ffaa00}.b{color:#4499ff}.p{color:#cc88ff}
-.dim{color:#333}
-.ts{color:#333;font-size:9px}
+.g{color:#68f5a8}.r{color:#ff8fa3}.y{color:#fcd34d}.b{color:#93c5fd}.p{color:#c4b5fd}
+.dim{color:#718096}
+.ts{color:#a0aec0;font-size:9px}
 
 /* Agent tiles */
 .roster{display:flex;flex-wrap:wrap;gap:5px}
-.tile{background:#111;border:1px solid #1e1e1e;border-radius:3px;padding:6px 8px;min-width:90px;position:relative}
+.tile{background:#111;border:1px solid #1e1e1e;border-radius:3px;padding:6px 8px;min-width:130px;position:relative}
 .tile.benched{border-color:#330000;opacity:0.5}
 .tile.new-agent{border-color:#ff8844}
-.tile .agent-name{font-size:11px;font-weight:bold;color:#e0e0e0;margin-bottom:2px}
+.agent-header{cursor:pointer}
+.agent-header:hover{background:rgba(255,255,255,0.03);border-radius:4px}
+.tile .agent-name{font-size:14px;font-weight:700;color:#ffffff;margin-bottom:2px}
 .tile .agent-name.new-agent{color:#ff8844}
-.tile .stats{font-size:9px;color:#555}
+.tile .stats{font-size:12px;color:#f0f4ff}
 .tile .pnl{font-size:10px;margin-top:2px}
-.tile .pnl.pos{color:#00ff88}.tile .pnl.neg{color:#ff4444}.tile .pnl.zero{color:#555}
+.tile .pnl.pos{color:#68f5a8}.tile .pnl.neg{color:#ff8fa3}.tile .pnl.zero{color:#718096}
+.dropdown-arrow{float:right;color:#718096;font-size:10px}
+
+/* Agent history dropdown */
+.agent-history{border-top:1px solid #2a3045;margin-top:8px;padding-top:8px}
+.history-table{width:100%;font-size:11px}
+.history-table td{padding:4px 6px;color:#f0f4ff;font-size:11px}
+.history-table th{color:#ffffff;padding:4px 6px;font-size:9px}
+.win-row{background:rgba(104,245,168,0.05)}
+.loss-row{background:rgba(255,143,163,0.05)}
+.pnl-win{color:#68f5a8;font-weight:700}
+.pnl-loss{color:#ff8fa3;font-weight:700}
+.yes-side{color:#68f5a8}
+.no-side{color:#ff8fa3}
+.ticker-cell{color:#93c5fd;font-family:monospace}
+.reason-cell{color:#a0aec0;font-size:10px}
 
 /* Macro table */
-.macro-val{color:#e0e0e0}
-.macro-val.HAWKISH,.macro-val.RISING,.macro-val.INVERTED,.macro-val.HIGH,.macro-val.EXTREME{color:#ff4444}
-.macro-val.DOVISH,.macro-val.FALLING,.macro-val.NORMAL,.macro-val.LOW{color:#00ff88}
-.macro-val.FEAR,.macro-val.EXTREME_FEAR{color:#ff4444}
-.macro-val.GREED,.macro-val.EXTREME_GREED{color:#ffaa00}
-.macro-val.NEUTRAL,.macro-val.FLAT,.macro-val.MEDIUM{color:#555}
+.macro-val{color:#ffffff;font-weight:600}
+.macro-val.HAWKISH,.macro-val.RISING,.macro-val.INVERTED,.macro-val.HIGH,.macro-val.EXTREME{color:#ff8fa3}
+.macro-val.DOVISH,.macro-val.FALLING,.macro-val.NORMAL,.macro-val.LOW{color:#68f5a8}
+.macro-val.FEAR,.macro-val.EXTREME_FEAR{color:#ff8fa3}
+.macro-val.GREED,.macro-val.EXTREME_GREED{color:#fcd34d}
+.macro-val.NEUTRAL,.macro-val.FLAT,.macro-val.MEDIUM{color:#718096}
+.signal-value{color:#ffffff;font-weight:600}
+.signal-label{color:#a0aec0}
 
 /* Log feed */
-.log-wrap{font-size:9px;line-height:1.6;max-height:220px;overflow-y:auto;color:#333}
+.log-wrap{font-size:9px;line-height:1.6;max-height:220px;overflow-y:auto;color:#a0aec0}
 .log-line{white-space:pre-wrap;word-break:break-all}
-.log-line.sig{color:#00ff88}.log-line.err{color:#ff4444}.log-line.warn{color:#ffaa00}
-.log-line.oil{color:#ff8844}.log-line.axiom{color:#4499ff}
+.log-line.sig{color:#68f5a8}.log-line.err{color:#ff8fa3}.log-line.warn{color:#fcd34d}
+.log-line.oil{color:#ff8844}.log-line.axiom{color:#93c5fd}
 
 /* Scores */
-.pnl-pos{color:#00ff88}.pnl-neg{color:#ff4444}
-.rank-1{color:#ffd700}.rank-2{color:#aaaaaa}.rank-3{color:#cd7f32}
+.pnl-pos{color:#68f5a8}.pnl-neg{color:#ff8fa3}
+.rank-1{color:#ffd700}.rank-2{color:#c4b5fd}.rank-3{color:#cd7f32}
 
 /* Vp */
 .vp-bar-wrap{background:#111;border-radius:2px;height:4px;margin-top:4px;width:100%}
-.vp-bar{background:#4499ff;height:4px;border-radius:2px}
+.vp-bar{background:#93c5fd;height:4px;border-radius:2px}
 
 /* divider */
 .sep{border:none;border-top:1px solid #1a1a1a;margin:8px 0}
@@ -96,11 +115,11 @@ tr:hover td{background:#131313}
       <table>
         {% for row in macro_rows %}
         <tr>
-          <td class="ts">{{ row.label }}</td>
+          <td class="ts signal-label">{{ row.label }}</td>
           <td>
             {% set v = row.val|string %}
             {% set cls = v.split()[0] if v else '' %}
-            <span class="macro-val {{ cls }}">{{ v }}</span>
+            <span class="macro-val {{ cls }} signal-value">{{ v }}</span>
             {% if row.raw is not none %}<span class="ts"> ({{ '%.2f'|format(row.raw) if row.raw else '—' }})</span>{% endif %}
           </td>
         </tr>
@@ -115,7 +134,7 @@ tr:hover td{background:#131313}
       <h2>📋 Validation Status</h2>
       {% set threshold = vp.get('unlock_threshold_trades', 50) %}
       {% set progress_pct = [[(total_trades / threshold * 100)|int, 0]|max, 100]|min %}
-      <div style="color:#555;font-size:10px;line-height:1.8">
+      <div style="font-size:10px;line-height:1.8;color:#f0f4ff">
         <div>Phase: <span class="{{ 'y' if vp.get('active') else 'g' }}">{{ 'ACTIVE' if vp.get('active') else 'COMPLETE' }}</span></div>
         <div>Window: {{ vp.get('start_date', '—') }} → {{ vp.get('end_date', '—') }}</div>
         <div>Benched: <span class="{{ 'r' if vp.get('benched_agents') else 'g' }}">{{ vp.get('benched_agents', [])|join(', ') or 'None' }}</span></div>
@@ -123,7 +142,7 @@ tr:hover td{background:#131313}
           Trades: <span class="{{ 'g' if total_trades >= threshold else 'y' }}">{{ total_trades }}</span> / {{ threshold }} unlock threshold
         </div>
         <div class="vp-bar-wrap"><div class="vp-bar" style="width:{{ progress_pct }}%"></div></div>
-        <div style="margin-top:6px;color:#333">{{ progress_pct }}% to unlock</div>
+        <div style="margin-top:6px;color:#718096">{{ progress_pct }}% to unlock</div>
       </div>
     </div>
   </div>
@@ -135,15 +154,39 @@ tr:hover td{background:#131313}
   <div class="roster">
     {% for agent in roster %}
     <div class="tile {{ 'benched' if agent.benched else '' }} {{ 'new-agent' if agent.is_new else '' }}">
-      <div class="agent-name {{ 'new-agent' if agent.is_new else '' }}">
-        {{ agent.name }}{% if agent.is_new %} ⭐{% endif %}{% if agent.benched %} 🔒{% endif %}
+      <div class="agent-header" onclick="toggleHistory('{{ agent.name }}')">
+        <div class="agent-name {{ 'new-agent' if agent.is_new else '' }}">
+          {{ agent.name }}{% if agent.is_new %} ⭐{% endif %}{% if agent.benched %} 🔒{% endif %}
+          {% if agent.trades > 0 %}<span class="dropdown-arrow">▼</span>{% endif %}
+        </div>
+        <div class="stats">
+          {% if agent.trades > 0 %}{{ agent.win_pct }}% win | {{ agent.trades }}t{% else %}0 trades{% endif %}
+        </div>
+        <div class="pnl {{ 'pos' if agent.pnl > 0 else 'neg' if agent.pnl < 0 else 'zero' }}">
+          {{ '+' if agent.pnl >= 0 else '' }}${{ '%.2f'|format(agent.pnl) }}
+        </div>
       </div>
-      <div class="stats">
-        {% if agent.trades > 0 %}{{ agent.win_pct }}% win | {{ agent.trades }}t{% else %}0 trades{% endif %}
+      {% if agent.history %}
+      <div class="agent-history" id="history-{{ agent.name }}" style="display:none">
+        <table class="history-table">
+          <thead>
+            <tr><th>CONTRACT</th><th>SIDE</th><th>ENTRY</th><th>EXIT</th><th>P&amp;L</th><th>REASON</th></tr>
+          </thead>
+          <tbody>
+          {% for trade in agent.history %}
+            <tr class="{{ 'win-row' if trade.pnl > 0 else 'loss-row' }}">
+              <td class="ticker-cell" title="{{ trade.ticker }}">{{ trade.ticker_short }}</td>
+              <td class="{{ 'yes-side' if trade.side == 'yes' else 'no-side' }}">{{ trade.direction }}</td>
+              <td>{{ trade.entry }}¢</td>
+              <td>{{ trade.exit }}¢</td>
+              <td class="{{ 'pnl-win' if trade.pnl > 0 else 'pnl-loss' }}">{{ trade.pnl_str }}</td>
+              <td class="reason-cell">{{ trade.reason }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
       </div>
-      <div class="pnl {{ 'pos' if agent.pnl > 0 else 'neg' if agent.pnl < 0 else 'zero' }}">
-        {{ '+' if agent.pnl >= 0 else '' }}${{ '%.2f'|format(agent.pnl) }}
-      </div>
+      {% endif %}
     </div>
     {% endfor %}
   </div>
@@ -212,6 +255,13 @@ tr:hover td{background:#131313}
     {% if not log_lines %}<div class="dim">No log data available.</div>{% endif %}
   </div>
 </div>
+
+<script>
+function toggleHistory(agentName) {
+    var el = document.getElementById('history-' + agentName);
+    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+</script>
 
 </body>
 </html>

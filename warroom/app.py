@@ -115,25 +115,80 @@ def _tail_log(n: int = 40) -> list[str]:
         return []
 
 
-def _leaderboard(trades: list[dict]) -> list[dict]:
-    stats: dict[str, dict] = {}
-    for t in trades:
-        name = t.get("agent_name") or "UNKNOWN"
-        if name not in stats:
-            stats[name] = {"name": name, "trades": 0, "wins": 0, "pnl": 0.0}
-        stats[name]["trades"] += 1
-        pnl = float(t.get("pnl") or 0)
-        stats[name]["pnl"] = round(stats[name]["pnl"] + pnl, 4)
-        if pnl > 0:
-            stats[name]["wins"] += 1
+def _load_agent_stats() -> dict[str, dict]:
+    """Canonical agent stats from DB — used for both roster tiles and leaderboard."""
+    if not os.path.exists(_DB_PATH):
+        return {}
+    try:
+        conn = sqlite3.connect(_DB_PATH)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT agent_name,
+                   COUNT(*) as trades,
+                   SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as wins,
+                   ROUND(COALESCE(SUM(pnl), 0), 2) as total_pnl
+            FROM syndicate_trades
+            WHERE exit_time IS NOT NULL
+            GROUP BY agent_name
+        """)
+        result = {}
+        for r in cur.fetchall():
+            name, trades, wins, pnl = r[0], int(r[1]), int(r[2] or 0), float(r[3] or 0.0)
+            result[name] = {
+                "name":    name,
+                "trades":  trades,
+                "wins":    wins,
+                "win_pct": round(wins / trades * 100) if trades else 0,
+                "pnl":     pnl,
+            }
+        conn.close()
+        return result
+    except Exception:
+        return {}
 
-    board = []
-    for s in stats.values():
-        t = s["trades"]
-        s["win_pct"] = round(s["wins"] / t * 100, 0) if t else 0
-        board.append(s)
 
-    return sorted(board, key=lambda x: -x["pnl"])
+def _get_agent_trade_history(agent_name: str) -> list:
+    """Per-agent closed trade history, newest first, max 50."""
+    if not os.path.exists(_DB_PATH):
+        return []
+    try:
+        conn = sqlite3.connect(_DB_PATH)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT ticker, side, quantity, entry_price, exit_price,
+                   pnl, exit_reason, entry_time, exit_time
+            FROM syndicate_trades
+            WHERE agent_name = ? AND exit_time IS NOT NULL
+            ORDER BY exit_time DESC
+            LIMIT 50
+        """, (agent_name,))
+        trades = []
+        for r in cur.fetchall():
+            ticker, side, qty, entry_cents, exit_raw, pnl, reason, opened, closed = r
+            pnl         = float(pnl or 0)
+            entry_cents = int(entry_cents or 0)
+            exit_cents  = int(round(float(exit_raw or 0) * 100)) if exit_raw else 0
+            ticker_short = ticker.split("-")[-1] if ticker else "?"
+            direction    = "↑ YES" if side == "yes" else "↓ NO"
+            pnl_str      = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
+            trades.append({
+                "ticker":       ticker,
+                "ticker_short": ticker_short,
+                "side":         side,
+                "qty":          qty,
+                "entry":        entry_cents,
+                "exit":         exit_cents,
+                "pnl":          pnl,
+                "pnl_str":      pnl_str,
+                "reason":       (reason or "")[:32],
+                "opened":       opened,
+                "closed":       closed,
+                "direction":    direction,
+            })
+        conn.close()
+        return trades
+    except Exception:
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -142,34 +197,32 @@ def _leaderboard(trades: list[dict]) -> list[dict]:
 
 @app.route("/")
 def dashboard():
-    cfg     = _load_config()
-    signals = _load_signals()
-    mems    = _load_agent_memories()
-    trades  = _load_trades()
-    log_lines = _tail_log(40)
-    leaderboard = _leaderboard(trades)
+    cfg         = _load_config()
+    signals     = _load_signals()
+    mems        = _load_agent_memories()
+    trades      = _load_trades()
+    log_lines   = _tail_log(40)
+    agent_stats = _load_agent_stats()
+    leaderboard = sorted(agent_stats.values(), key=lambda x: -x["pnl"])
 
     # Validation phase
     vp   = cfg.get("validation_phase", {})
     risk = cfg.get("risk", {})
 
-    # Agent roster cards
+    # Agent roster cards — stats from DB (same source as leaderboard)
     roster = []
     for name in _KNOWN_AGENTS:
-        mem  = mems.get(name, {})
-        perf = mem.get("performance", {})
-        t    = int(perf.get("trades", 0))
-        w    = int(perf.get("wins", 0))
-        pnl  = float(perf.get("total_pnl", 0.0))
-        wrate = round(w / t * 100) if t else 0
+        mem   = mems.get(name, {})
+        stats = agent_stats.get(name, {"trades": 0, "wins": 0, "win_pct": 0, "pnl": 0.0})
         roster.append({
             "name":     name,
-            "trades":   t,
-            "win_pct":  wrate,
-            "pnl":      round(pnl, 2),
+            "trades":   stats["trades"],
+            "win_pct":  stats["win_pct"],
+            "pnl":      round(stats["pnl"], 2),
             "benched":  mem.get("benched", False),
             "domain":   mem.get("domain", ""),
             "is_new":   name == "OIL",
+            "history":  _get_agent_trade_history(name),
         })
 
     # Recent trades (last 15)

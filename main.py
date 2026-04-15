@@ -485,6 +485,7 @@ def _act_on_decision(ticker: str, verdict: str, size_dollars: int, decision: dic
         "expiry":       "",
         "created_by":   agent_name,
         "reasoning":    reasoning,
+        "edge_pct":     float(decision.get("edge_pct", decision.get("conviction", 0)) or 0),
     }
 
     # Determine the actual contract price for the side we're buying

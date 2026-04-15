@@ -141,6 +141,7 @@ def place_order(
                 rule_id        = rule_id,
                 agent_name     = agent_name,
                 contract_class = contract_class,
+                edge_at_entry  = float(rule.get("edge_pct", 0.0)),
             )
             state.add_position(position)
             state.remove_pending(ticker)
@@ -195,6 +196,7 @@ def place_order(
             rule_id        = rule_id,
             agent_name     = agent_name,
             contract_class = contract_class,
+            edge_at_entry  = float(rule.get("edge_pct", 0.0)),
         )
         state.add_position(position)
         state.remove_pending(ticker)
