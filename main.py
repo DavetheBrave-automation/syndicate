@@ -80,39 +80,109 @@ def _is_paper_mode() -> bool:
 
 
 # ---------------------------------------------------------------------------
+# PID lockfile — prevent double-start (watchdog spawns without killing old proc)
+# ---------------------------------------------------------------------------
+
+_PID_FILE = os.path.join(_SYNDICATE_ROOT, "syndicate.pid")
+
+
+def _acquire_pid_lock() -> bool:
+    """
+    Write our PID to syndicate.pid. If a PID file already exists and that
+    process is still alive, refuse to start — return False.
+    """
+    if os.path.exists(_PID_FILE):
+        try:
+            with open(_PID_FILE) as f:
+                old_pid = int(f.read().strip())
+            # Stdlib-only liveness check: os.kill(pid, 0) raises OSError if dead
+            os.kill(old_pid, 0)
+            # Still alive — refuse to start
+            logger.error(
+                "[Main] Refusing to start — existing Syndicate process PID %d is running. "
+                "Kill it first or delete syndicate.pid.",
+                old_pid,
+            )
+            return False
+        except (ValueError, ProcessLookupError, OSError):
+            pass  # Stale/corrupt PID file — safe to overwrite
+        except Exception:
+            pass
+
+    try:
+        with open(_PID_FILE, "w") as f:
+            f.write(str(os.getpid()))
+    except Exception as e:
+        logger.warning("[Main] Could not write PID file: %s — continuing anyway.", e)
+    return True
+
+
+def _release_pid_lock() -> None:
+    try:
+        if os.path.exists(_PID_FILE):
+            with open(_PID_FILE) as f:
+                pid = int(f.read().strip())
+            if pid == os.getpid():
+                os.remove(_PID_FILE)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Startup trigger cleanup
 # ---------------------------------------------------------------------------
 
+_MAX_TRIGGER_AGE_SECONDS = 300   # 5 min — anything older is stale by definition
+
+
 def _cleanup_triggers() -> None:
     """
-    On every restart, remove stale trigger files so the new session starts clean.
-    Keeps the single newest heartbeat; deletes all but newest new_market_* and velocity_* files.
+    On startup: delete ALL trigger files older than 5 minutes.
+    Keeps heartbeat_latest.json, opportunity_scan.json, strategic_scan.json regardless of age.
     """
     _triggers = os.path.join(_SYNDICATE_ROOT, "triggers")
     os.makedirs(_triggers, exist_ok=True)
 
+    _KEEP_ALWAYS = {"heartbeat_latest.json", "opportunity_scan.json", "strategic_scan.json"}
+    now     = time.time()
     removed = 0
 
-    # Patterns to clean — keep newest 1, delete the rest
-    for pattern in ("new_market_*.json", "velocity_*.json"):
-        files = sorted(glob.glob(os.path.join(_triggers, pattern)))
-        for f in files[:-1]:   # keep newest (last in sorted order)
-            try:
+    for f in glob.glob(os.path.join(_triggers, "*.json")) + glob.glob(os.path.join(_triggers, "*.tmp")):
+        fname = os.path.basename(f)
+        if fname in _KEEP_ALWAYS:
+            continue
+        try:
+            if now - os.path.getmtime(f) > _MAX_TRIGGER_AGE_SECONDS:
                 os.remove(f)
                 removed += 1
-            except OSError:
-                pass
-
-    # Remove all stale exit triggers so agents start fresh
-    for pattern in ("*_exit.json", "*_exit_decision.json", "*_exit_decision.txt"):
-        for f in glob.glob(os.path.join(_triggers, pattern)):
-            try:
-                os.remove(f)
-                removed += 1
-            except OSError:
-                pass
+        except OSError:
+            pass
 
     logger.info("[Startup] Triggers cleaned — %d stale files removed.", removed)
+
+
+def _trigger_sweeper_loop() -> None:
+    """Runtime sweeper — every 60s, purge trigger files older than 5 minutes."""
+    _triggers = os.path.join(_SYNDICATE_ROOT, "triggers")
+    _KEEP_ALWAYS = {"heartbeat_latest.json", "opportunity_scan.json", "strategic_scan.json"}
+    while _running:
+        time.sleep(60)
+        if not _running:
+            break
+        now     = time.time()
+        removed = 0
+        for f in glob.glob(os.path.join(_triggers, "*.json")) + glob.glob(os.path.join(_triggers, "*.tmp")):
+            fname = os.path.basename(f)
+            if fname in _KEEP_ALWAYS:
+                continue
+            try:
+                if now - os.path.getmtime(f) > _MAX_TRIGGER_AGE_SECONDS:
+                    os.remove(f)
+                    removed += 1
+            except OSError:
+                pass
+        if removed:
+            logger.info("[Sweeper] Purged %d stale trigger files.", removed)
 
 
 # ---------------------------------------------------------------------------
@@ -479,6 +549,7 @@ def _shutdown(signum=None, frame=None):
     global _running
     logger.info("[Main] Shutdown signal received — stopping all components.")
     _running = False
+    _release_pid_lock()
 
     try:
         _scan_engine.stop()
@@ -521,7 +592,11 @@ if __name__ == "__main__":
     paper_tag = "[PAPER MODE] " if _is_paper_mode() else "[LIVE MODE] "
     logger.info("%sThe Syndicate starting up...", paper_tag)
 
-    # ── 0. Startup cleanup ────────────────────────────────────────────────────
+    # ── 0a. PID lock — refuse to start if already running ────────────────────
+    if not _acquire_pid_lock():
+        sys.exit(1)
+
+    # ── 0b. Startup cleanup ───────────────────────────────────────────────────
     _cleanup_triggers()
 
     # ── 1. Rule loader ────────────────────────────────────────────────────────
@@ -582,6 +657,14 @@ if __name__ == "__main__":
         daemon=True,
     )
     _status_thread.start()
+
+    # ── 6a. Trigger sweeper (every 60s, purge stale trigger files) ────────────
+    _sweeper_thread = threading.Thread(
+        target=_trigger_sweeper_loop,
+        name="syndicate-trigger-sweeper",
+        daemon=True,
+    )
+    _sweeper_thread.start()
 
     # ── 7. Telegram startup health check ────────────────────────────────────
     try:

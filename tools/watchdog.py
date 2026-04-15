@@ -29,6 +29,7 @@ ENGINE_LOG      = os.path.join(REPO_ROOT, "logs", "syndicate.log")
 WATCHDOG_LOG    = os.path.join(REPO_ROOT, "logs", "watchdog.log")
 CONFIG_YAML     = os.path.join(REPO_ROOT, "syndicate_config.yaml")
 
+PID_FILE        = os.path.join(REPO_ROOT, "syndicate.pid")
 ENGINE_NAME     = "Syndicate"
 DEAD_THRESHOLD  = 150   # seconds — 2+ missed 60s status heartbeats
 CHECK_INTERVAL  = 30    # seconds between health checks
@@ -82,8 +83,37 @@ def _telegram(msg: str) -> None:
 # Engine restart
 # ---------------------------------------------------------------------------
 
+def _kill_old_process() -> None:
+    """Kill existing Syndicate process via PID file before spawning a new one."""
+    if not os.path.exists(PID_FILE):
+        return
+    try:
+        with open(PID_FILE) as f:
+            old_pid = int(f.read().strip())
+        # taskkill on Windows — graceful first, then force
+        result = subprocess.run(
+            ["taskkill", "/PID", str(old_pid), "/T"],
+            capture_output=True, timeout=5,
+        )
+        if result.returncode == 0:
+            logger.info("[%s] Killed old process PID %d.", ENGINE_NAME, old_pid)
+        else:
+            # Already dead — force kill
+            subprocess.run(["taskkill", "/F", "/PID", str(old_pid), "/T"],
+                           capture_output=True, timeout=5)
+        time.sleep(2)   # let it die cleanly
+    except Exception as e:
+        logger.warning("[%s] Could not kill old process: %s", ENGINE_NAME, e)
+    # Remove stale PID file so new process can acquire the lock
+    try:
+        os.remove(PID_FILE)
+    except Exception:
+        pass
+
+
 def _restart_engine() -> None:
-    """Spawn main.py as a detached hidden process."""
+    """Kill old process then spawn main.py as a detached hidden process."""
+    _kill_old_process()
     try:
         CREATE_NO_WINDOW      = 0x08000000
         CREATE_NEW_PROC_GROUP = 0x00000200
