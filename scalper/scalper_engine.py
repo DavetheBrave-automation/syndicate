@@ -576,18 +576,72 @@ class ScalperEngine:
                 logger.error("[ScalperEngine] _check_agent_exits error: %s", exc, exc_info=True)
             time.sleep(_TIME_EXIT_INTERVAL)
 
+    @staticmethod
+    def _evaluate_htsr_exit(position, market) -> tuple:
+        """
+        Hold-to-resolution exit logic for AXIOM-style positions.
+        Uses absolute YES price thresholds instead of P&L percentages.
+
+        entry_price convention: always stores YES price in cents (0–100).
+          YES side: entry_dollars = entry_price / 100
+          NO  side: no_entry = (100 - entry_price) / 100 = actual NO cost
+
+        Exit rules (priority order):
+          1. Win lock    — our side ≥ 90¢  → close immediately
+          2. Danger cut  — other side ≥ 90¢ → settlement risk, cut loss
+          3. Profit tgt  — our side ≥ 85¢  → lock profit
+          4. Stop loss   — our side ≤ 15¢  → paid ~30¢, lost ~50%
+          5. Time stop   — underwater with < 1hr to settlement
+        """
+        if market is None:
+            return False, "no market data"
+
+        yes_price = market.yes_price
+
+        if position.side == "yes":
+            our_side   = yes_price
+            their_side = 1.0 - yes_price
+            our_entry  = position.entry_price / 100.0
+        else:
+            our_side   = 1.0 - yes_price
+            their_side = yes_price
+            our_entry  = (100 - position.entry_price) / 100.0
+
+        if our_side >= 0.90:
+            return True, f"Win locked — our side at {our_side:.0%}"
+        if their_side >= 0.90:
+            return True, f"Settlement risk — other side at {their_side:.0%}, cutting loss"
+        if our_side >= 0.85:
+            return True, f"Profit target — our side at {our_side:.0%}"
+        if our_side <= 0.15:
+            return True, f"Stop loss — our side at {our_side:.0%}"
+
+        minutes_to_settle = market.days_to_settlement * 1440.0
+        if minutes_to_settle < 60 and our_entry > 0:
+            pnl_pct = (our_side - our_entry) / our_entry
+            if pnl_pct < 0:
+                return True, f"Time stop — underwater {pnl_pct:.0%} with <1hr to settlement"
+
+        return False, "Hold — thesis intact"
+
     def _check_pct_exits(self) -> None:
         """
-        Scan all open positions. Autonomously close any that hit
-        target (+20%), stop (-30%), time limit, or settlement protection.
+        Scan all open positions. Autonomously close any that hit exit thresholds.
         Called every 30s from _time_exit_loop.
+
+        Two exit paths:
+          - hold_to_settlement positions (e.g. AXIOM): price-based thresholds via _evaluate_htsr_exit
+          - all others: percentage-based via _evaluate_position_exit (+20%/-30%/60min)
         """
         for ticker, position in state.get_all_positions().items():
             if not getattr(position, "opened_by_syndicate", False):
                 continue
             market = state.get_market(ticker)
             try:
-                should, reason = self._evaluate_position_exit(ticker, position, market)
+                if getattr(position, "hold_to_settlement", False):
+                    should, reason = self._evaluate_htsr_exit(position, market)
+                else:
+                    should, reason = self._evaluate_position_exit(ticker, position, market)
                 if should:
                     exit_price = market.yes_price if market else (position.entry_price / 100.0)
                     logger.info("[ScalperEngine] PCT EXIT: %s | %s", ticker, reason)
@@ -607,6 +661,9 @@ class ScalperEngine:
         max_hold_minutes (re-read from config on each sweep so live config
         changes take effect without restart).
 
+        HTSR positions (hold_to_settlement=True) are SKIPPED — they use
+        _evaluate_htsr_exit() in _check_pct_exits() instead.
+
         This method performs I/O (config reload) and is intentionally kept
         OFF the on_price_update hot path.
         """
@@ -619,6 +676,10 @@ class ScalperEngine:
         scalp_positions = state.get_positions_by_class("SCALP")
 
         for ticker, position in scalp_positions.items():
+            # Hold-to-resolution positions are managed by price thresholds, not time.
+            if getattr(position, "hold_to_settlement", False):
+                continue
+
             hold_seconds = now - position.entry_time
             if hold_seconds >= max_hold_seconds:
                 hold_min = hold_seconds / 60.0

@@ -137,26 +137,30 @@ def place_order(
                 entry_cents = int(round(price * 100))
 
             position = Position(
-                ticker         = ticker,
-                side           = side,
-                quantity       = quantity,
-                entry_price    = entry_cents,
-                entry_time     = time.time(),
-                stop_price     = stop_price,
-                target_price   = target_price,
-                order_id       = order_id,
-                rule_id        = rule_id,
-                agent_name     = agent_name,
-                contract_class = contract_class,
-                edge_at_entry  = float(rule.get("edge_pct", 0.0)),
+                ticker             = ticker,
+                side               = side,
+                quantity           = quantity,
+                entry_price        = entry_cents,
+                entry_time         = time.time(),
+                stop_price         = stop_price,
+                target_price       = target_price,
+                order_id           = order_id,
+                rule_id            = rule_id,
+                agent_name         = agent_name,
+                contract_class     = contract_class,
+                edge_at_entry      = float(rule.get("edge_pct", 0.0)),
+                hold_to_settlement = bool(rule.get("hold_to_settlement", False)),
+                target_exit_pct    = float(rule.get("target_exit_pct",  0.20)),
+                stop_loss_pct      = float(rule.get("stop_loss_pct",    0.30)),
+                max_hold_minutes   = int(rule.get("max_hold_minutes",   60)),
             )
             state.add_position(position)
             state.remove_pending(ticker)
 
             logger.info(
-                "[PAPER] Simulated fill: %s %s %dx @ %d¢ | stop=%.0f¢ target=%.0f¢ | rule=%s",
+                "[PAPER] Simulated fill: %s %s %dx @ %d¢ | stop=%.0f¢ target=%.0f¢ | htsr=%s | rule=%s",
                 side.upper(), ticker, quantity, entry_cents,
-                stop_price, target_price, rule_id,
+                stop_price, target_price, rule.get("hold_to_settlement", False), rule_id,
             )
             try:
                 from notifications.discord import post as _discord_post
@@ -196,25 +200,30 @@ def place_order(
             entry_cents = int(round(aggressive_price * 100))
 
         position = Position(
-            ticker         = ticker,
-            side           = side,
-            quantity       = quantity,
-            entry_price    = entry_cents,
-            entry_time     = time.time(),
-            stop_price     = stop_price,
-            target_price   = target_price,
-            order_id       = order_id,
-            rule_id        = rule_id,
-            agent_name     = agent_name,
-            contract_class = contract_class,
-            edge_at_entry  = float(rule.get("edge_pct", 0.0)),
+            ticker             = ticker,
+            side               = side,
+            quantity           = quantity,
+            entry_price        = entry_cents,
+            entry_time         = time.time(),
+            stop_price         = stop_price,
+            target_price       = target_price,
+            order_id           = order_id,
+            rule_id            = rule_id,
+            agent_name         = agent_name,
+            contract_class     = contract_class,
+            edge_at_entry      = float(rule.get("edge_pct", 0.0)),
+            hold_to_settlement = bool(rule.get("hold_to_settlement", False)),
+            target_exit_pct    = float(rule.get("target_exit_pct",  0.20)),
+            stop_loss_pct      = float(rule.get("stop_loss_pct",    0.30)),
+            max_hold_minutes   = int(rule.get("max_hold_minutes",   60)),
         )
         state.add_position(position)
         state.remove_pending(ticker)
 
         logger.info(
-            "[OrderManager] Live buy placed: %s %s %dx @ %.3f | order_id=%s | rule=%s",
-            side.upper(), ticker, quantity, aggressive_price, order_id, rule_id,
+            "[OrderManager] Live buy placed: %s %s %dx @ %.3f | order_id=%s | htsr=%s | rule=%s",
+            side.upper(), ticker, quantity, aggressive_price, order_id,
+            rule.get("hold_to_settlement", False), rule_id,
         )
         return order_id
 

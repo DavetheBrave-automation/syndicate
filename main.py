@@ -474,18 +474,27 @@ def _act_on_decision(ticker: str, verdict: str, size_dollars: int, decision: dic
         logger.warning("[Gate] No market data for %s and no entry_price — cannot place order.", ticker)
         return
 
+    # AXIOM uses hold-to-resolution (price-based exits), not scalp (pct-based).
+    # Any agent returning hold_to_settlement=True in its decision gets the same treatment.
+    is_htsr = (agent_name == "AXIOM") or bool(decision.get("hold_to_settlement", False))
+
     # Build a minimal rule dict for order_manager
     rule = {
-        "ticker":       ticker,
-        "class":        contract_class,
-        "entry_price":  current_price,
-        "target_price": float(target_price) if target_price is not None else current_price * 1.20,
-        "stop_price":   float(stop_price)   if stop_price   is not None else current_price * 0.85,
-        "max_size":     size_dollars,
-        "expiry":       "",
-        "created_by":   agent_name,
-        "reasoning":    reasoning,
-        "edge_pct":     float(decision.get("edge_pct", decision.get("conviction", 0)) or 0),
+        "ticker":            ticker,
+        "class":             contract_class,
+        "entry_price":       current_price,
+        "target_price":      float(target_price) if target_price is not None else current_price * 1.20,
+        "stop_price":        float(stop_price)   if stop_price   is not None else current_price * 0.85,
+        "max_size":          size_dollars,
+        "expiry":            "",
+        "created_by":        agent_name,
+        "reasoning":         reasoning,
+        "edge_pct":          float(decision.get("edge_pct", decision.get("conviction", 0)) or 0),
+        # Exit philosophy — HTSR (hold-to-resolution) vs scalp
+        "hold_to_settlement": is_htsr,
+        "target_exit_pct":   2.0  if is_htsr else float(decision.get("target_exit_pct", 0.20)),
+        "stop_loss_pct":     0.50 if is_htsr else float(decision.get("stop_loss_pct",   0.30)),
+        "max_hold_minutes":  4320 if is_htsr else int(decision.get("max_hold_minutes",  60)),
     }
 
     # Determine the actual contract price for the side we're buying

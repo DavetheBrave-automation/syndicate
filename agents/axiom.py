@@ -39,6 +39,13 @@ class AxiomAgent(BaseAgent):
 
     name:       str       = "AXIOM"
     domain:     str       = "prediction"
+
+    # AXIOM trades at price extremes: YES > 0.70 or YES < 0.30.
+    # The base gate blocks YES > 0.75 / YES < 0.25 — that would silently kill
+    # AXIOM's strongest signals. Skip it; AXIOM's own should_evaluate() enforces
+    # the 0.30 / 0.70 bounds directly.
+    _skip_base_price_gate: bool = True
+
     seed_rules: list[str] = [
         "Only trade when settlement is within 3 days and volume exceeds 1000",
         "Bet WITH market consensus at extreme prices (>70% YES or <30% YES)",
@@ -174,4 +181,69 @@ class AxiomAgent(BaseAgent):
             market, conviction_tier, edge_pct, side,
             entry_price, target_price, stop_price, reasoning, game,
         )
+
+        # ── AXIOM exit philosophy: hold-to-resolution, NOT a scalp ──────────
+        # Override the default scalper exit params so the engine holds until
+        # our side reaches 85¢-90¢ (price-based) rather than exiting at +20%.
+        if signal:
+            sig = signal["signal"]
+            sig["target_exit_pct"]   = 2.0    # PCT path disabled; price logic takes over
+            sig["stop_loss_pct"]     = 0.50   # backstop: -50% (our side at ~15¢)
+            sig["max_hold_minutes"]  = 4320   # 3 days — never time-stop a consensus play
+            sig["hold_to_settlement"] = True
+
         self.submit_signal(signal)
+
+    # =========================================================================
+    # should_exit — AXIOM price-threshold override (hold-to-resolution)
+    # =========================================================================
+
+    def should_exit(self, position, market, game=None) -> bool:
+        """
+        AXIOM hold-to-resolution exit logic.
+        Uses absolute YES price thresholds, not percentage P&L.
+
+        Exit rules (priority order):
+          1. Win lock    — our side ≥ 90¢  → lock it immediately
+          2. Danger cut  — other side ≥ 90¢ → settlement risk, cut loss
+          3. Profit tgt  — our side ≥ 85¢  → take the profit
+          4. Stop loss   — our side ≤ 15¢  → paid ~30¢, down ~50%, cut
+          5. Time stop   — underwater with < 1hr to settlement
+
+        Deliberately does NOT flag at +20% P&L — that's a scalp, not the strategy.
+        """
+        if market is None:
+            return False
+
+        yes_price = market.yes_price
+
+        if position.side == "yes":
+            our_side   = yes_price
+            their_side = 1.0 - yes_price
+            our_entry  = position.entry_price / 100.0
+        else:
+            our_side   = 1.0 - yes_price
+            their_side = yes_price
+            our_entry  = (100 - position.entry_price) / 100.0
+
+        if our_side >= 0.90:
+            logger.info("[AXIOM] Exit flag: win locked — our side %.0f%%", our_side * 100)
+            return True
+        if their_side >= 0.90:
+            logger.info("[AXIOM] Exit flag: settlement risk — other side %.0f%%", their_side * 100)
+            return True
+        if our_side >= 0.85:
+            logger.info("[AXIOM] Exit flag: profit target — our side %.0f%%", our_side * 100)
+            return True
+        if our_side <= 0.15:
+            logger.info("[AXIOM] Exit flag: stop loss — our side %.0f%%", our_side * 100)
+            return True
+
+        minutes_to_settle = market.days_to_settlement * 1440.0
+        if minutes_to_settle < 60 and our_entry > 0:
+            pnl_pct = (our_side - our_entry) / our_entry
+            if pnl_pct < 0:
+                logger.info("[AXIOM] Exit flag: time stop — underwater %.0f%% with <1hr left", pnl_pct * 100)
+                return True
+
+        return False
