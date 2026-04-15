@@ -132,24 +132,45 @@ def _release_pid_lock() -> None:
 # Startup trigger cleanup
 # ---------------------------------------------------------------------------
 
-_MAX_TRIGGER_AGE_SECONDS = 300   # 5 min — anything older is stale by definition
+_MAX_TRIGGER_AGE_SECONDS = 300   # 5 min — transient event files older than this are stale
+
+
+def _is_sweepable(fname: str) -> bool:
+    """
+    Only sweep transient event files. Never touch:
+      - Scan/heartbeat summaries (always kept fresh)
+      - *_signal.json  — agent signals waiting for TC gate (PS1 watcher reads these)
+      - *_decision.json — TC decisions waiting for main.py to act on
+      - pending_signal.json — panel flow signal
+      - decision.json — panel flow decision
+    """
+    _KEEP_ALWAYS = {
+        "heartbeat_latest.json", "opportunity_scan.json", "strategic_scan.json",
+        "pending_signal.json", "decision.json",
+    }
+    if fname in _KEEP_ALWAYS:
+        return False
+    # Never sweep TC-facing files — PS1 watcher needs to read them
+    if fname.endswith("_signal.json") or fname.endswith("_decision.json"):
+        return False
+    # Sweep: velocity_*, new_market_*, game_live_*, *.tmp, and unknown old files
+    return True
 
 
 def _cleanup_triggers() -> None:
     """
-    On startup: delete ALL trigger files older than 5 minutes.
-    Keeps heartbeat_latest.json, opportunity_scan.json, strategic_scan.json regardless of age.
+    On startup: delete transient event files older than 5 minutes.
+    Never deletes signal/decision files — those belong to the TC gate.
     """
     _triggers = os.path.join(_SYNDICATE_ROOT, "triggers")
     os.makedirs(_triggers, exist_ok=True)
 
-    _KEEP_ALWAYS = {"heartbeat_latest.json", "opportunity_scan.json", "strategic_scan.json"}
     now     = time.time()
     removed = 0
 
     for f in glob.glob(os.path.join(_triggers, "*.json")) + glob.glob(os.path.join(_triggers, "*.tmp")):
         fname = os.path.basename(f)
-        if fname in _KEEP_ALWAYS:
+        if not _is_sweepable(fname):
             continue
         try:
             if now - os.path.getmtime(f) > _MAX_TRIGGER_AGE_SECONDS:
@@ -162,9 +183,8 @@ def _cleanup_triggers() -> None:
 
 
 def _trigger_sweeper_loop() -> None:
-    """Runtime sweeper — every 60s, purge trigger files older than 5 minutes."""
+    """Runtime sweeper — every 60s, purge stale transient event files."""
     _triggers = os.path.join(_SYNDICATE_ROOT, "triggers")
-    _KEEP_ALWAYS = {"heartbeat_latest.json", "opportunity_scan.json", "strategic_scan.json"}
     while _running:
         time.sleep(60)
         if not _running:
@@ -173,7 +193,7 @@ def _trigger_sweeper_loop() -> None:
         removed = 0
         for f in glob.glob(os.path.join(_triggers, "*.json")) + glob.glob(os.path.join(_triggers, "*.tmp")):
             fname = os.path.basename(f)
-            if fname in _KEEP_ALWAYS:
+            if not _is_sweepable(fname):
                 continue
             try:
                 if now - os.path.getmtime(f) > _MAX_TRIGGER_AGE_SECONDS:
