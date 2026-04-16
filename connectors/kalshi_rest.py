@@ -239,7 +239,7 @@ _KNOWN_SPORTS_SERIES = [
     "KXNCAA",        # College sports
     # Crypto
     "KXBTCD",       # Bitcoin daily price
-    "KXETHUSD",     # Ethereum daily price
+    "KXETHD",       # Ethereum daily price (API series = KXETHD, not KXETHUSD)
     # Politics / Economics
     "KXPOL",        # Politics
     "KXECON",       # Economics

@@ -31,7 +31,7 @@ logger = logging.getLogger("syndicate.diamond")
 # ---------------------------------------------------------------------------
 
 # Kalshi crypto series tickers DIAMOND watches
-_CRYPTO_SERIES = {"KXBTCD", "KXBTCW", "KXETHD", "KXETHW"}
+_CRYPTO_SERIES = {"KXBTCD", "KXBTCW", "KXETHD", "KXETHUSD", "KXETHW"}
 
 # Daily volatility assumptions per asset
 _VOL_DAILY = {"BTC": 0.04, "ETH": 0.05}
