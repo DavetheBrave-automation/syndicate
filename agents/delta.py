@@ -241,6 +241,7 @@ class DeltaAgent(BaseAgent):
             sig["arb_series"]        = series
             sig["exit_trigger"]      = "gap closes to ≤ 2% or our side ≥ 85¢"
             sig["max_hold_minutes"]  = 240  # 4 hours — arb takes time to resolve
+            sig["hold_to_settlement"] = True  # use HTSR price gates not pct exits (matches AXIOM)
 
             if market.days_to_settlement > 1:
                 sig["max_size_dollars"] = 2
@@ -292,6 +293,7 @@ class DeltaAgent(BaseAgent):
         signal["signal"]["arb_series"]           = series
         signal["signal"]["min_gap_required"]     = 0.08
         signal["signal"]["max_hold_minutes"]     = 240  # 4 hours — arb takes time to resolve
+        signal["signal"]["hold_to_settlement"]   = True  # use HTSR price gates not pct exits
 
         self.submit_signal(signal)
         logger.info(
