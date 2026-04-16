@@ -121,22 +121,13 @@ class TideAgent(BaseAgent):
         """
         history = getattr(market, "price_history", [])
 
-        vel_5m  = _calc_velocity_over(history, _SHORT_WINDOW_S)
+        # Use 10-min window only — 5-min window has <2 points at 5-min heartbeat cadence
         vel_10m = _calc_velocity_over(history, _LONG_WINDOW_S)
 
-        # Both windows must agree on direction (same sign)
-        if vel_5m == 0.0 or vel_10m == 0.0:
-            return
-        if (vel_5m > 0) != (vel_10m > 0):
-            # Conflicting signals — momentum is not sustained
-            logger.debug(
-                "[TIDE] Conflicting momentum: %s vel_5m=%.1f%% vel_10m=%.1f%%",
-                market.ticker, vel_5m, vel_10m,
-            )
+        if vel_10m == 0.0:
             return
 
-        # Momentum score = combined absolute velocity
-        momentum_score = abs(vel_5m) + abs(vel_10m)
+        momentum_score = abs(vel_10m)
 
         if momentum_score < _MIN_VELOCITY:
             logger.debug(
@@ -146,7 +137,7 @@ class TideAgent(BaseAgent):
             return
 
         # Direction
-        going_up = vel_5m > 0
+        going_up = vel_10m > 0
 
         if going_up:
             # YES side: price rising → YES will profit
@@ -174,7 +165,7 @@ class TideAgent(BaseAgent):
 
         reasoning = (
             f"TIDE: {'UP' if going_up else 'DOWN'} momentum confirmed — "
-            f"vel_5m={vel_5m:+.1f}%, vel_10m={vel_10m:+.1f}%, "
+            f"vel_10m={vel_10m:+.1f}%, "
             f"score={momentum_score:.1f}%. "
             f"{'YES: buying rising contract.' if going_up else f'NO: buying falling contract (NO costs {round(1.0-market.yes_price,2):.2f}).'} "
             f"Target +{_TARGET_GAIN*100:.0f}%. Exit when momentum stalls."

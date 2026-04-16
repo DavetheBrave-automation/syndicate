@@ -127,13 +127,12 @@ class BlitzAgent(BaseAgent):
     def evaluate(self, market, game=None) -> None:
         price_history = market.price_history
 
-        # Recompute precise velocities from raw price_history (not the cached .velocity)
-        vel_60s  = _compute_velocity(price_history, 60.0)
+        # vel_fast: use market.velocity (scanner's 5-min % change) — replaces vel_60s.
+        # vel_60s from price_history is impossible at 5-min heartbeat cadence (only 1 tick/window).
+        vel_fast = market.velocity
         vel_300s = _compute_velocity(price_history, 300.0)
-
-        if vel_60s is None or vel_300s is None:
-            logger.debug("[BLITZ] Insufficient price history for ticker=%s", market.ticker)
-            return
+        if vel_300s is None:
+            vel_300s = vel_fast  # fallback: use same velocity as direction confirmation
 
         # Spread check — wide spread during panic/euphoria = bad fills
         if market.spread > _MAX_SPREAD:
@@ -142,22 +141,22 @@ class BlitzAgent(BaseAgent):
             )
             return
 
-        abs_vel = abs(vel_60s)
+        abs_vel = abs(vel_fast)
 
-        if vel_60s < _MIN_60S_VELOCITY and vel_300s < 0.0:
+        if vel_fast < _MIN_60S_VELOCITY and vel_300s < 0.0:
             # ── DROP FADE: oversold panic → buy YES ─────────────────────────────
             side         = "yes"
             entry_price  = round(market.yes_price, 4)
             target_price = round(min(0.90, entry_price * (1.0 + _PROFIT_TARGET_PCT)), 3)
             stop_price   = round(max(0.05, entry_price * (1.0 - _STOP_PCT)), 3)
             reasoning = (
-                f"BLITZ fade drop: 60s={vel_60s:.1f}%, 300s={vel_300s:.1f}%"
+                f"BLITZ fade drop: vel={vel_fast:.1f}%, 300s={vel_300s:.1f}%"
                 f" | YES entry={entry_price:.3f}"
                 f" | target={target_price:.3f} (+{_PROFIT_TARGET_PCT:.0%})"
                 f" | exit=8min OR +{_PROFIT_TARGET_PCT:.0%} whichever first"
             )
 
-        elif vel_60s > -_MIN_60S_VELOCITY and vel_300s > 0.0:
+        elif vel_fast > -_MIN_60S_VELOCITY and vel_300s > 0.0:
             # ── SPIKE FADE: overbought euphoria → buy NO ─────────────────────────
             # Pass YES price as entry_price; build_signal computes contract_cost = 1 - YES
             side         = "no"
@@ -166,7 +165,7 @@ class BlitzAgent(BaseAgent):
             target_price = round(max(0.05, no_cost * (1.0 + _PROFIT_TARGET_PCT)), 3)
             stop_price   = round(min(0.95, no_cost * (1.0 + _STOP_PCT)), 3)
             reasoning = (
-                f"BLITZ fade spike: 60s={vel_60s:.1f}%, 300s={vel_300s:.1f}%"
+                f"BLITZ fade spike: vel={vel_fast:.1f}%, 300s={vel_300s:.1f}%"
                 f" | NO entry={no_cost:.3f} (YES={entry_price:.3f})"
                 f" | target={target_price:.3f} (+{_PROFIT_TARGET_PCT:.0%})"
                 f" | exit=8min OR +{_PROFIT_TARGET_PCT:.0%} whichever first"
@@ -174,8 +173,8 @@ class BlitzAgent(BaseAgent):
 
         else:
             logger.debug(
-                "[BLITZ] No signal: vel_60s=%.1f%% vel_300s=%.1f%% | ticker=%s",
-                vel_60s, vel_300s, market.ticker,
+                "[BLITZ] No signal: vel=%.1f%% vel_300s=%.1f%% | ticker=%s",
+                vel_fast, vel_300s, market.ticker,
             )
             return
 

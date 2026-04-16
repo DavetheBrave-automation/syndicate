@@ -57,7 +57,7 @@ def _parse_ticker(ticker: str):
     e.g. "KXBTCD-23APR26-85000" -> ("BTC", 85000.0)
     Returns (None, None) if not parseable.
     """
-    m = re.match(r"KX(BTC|ETH)[DW]-\w+-(\d+(?:\.\d+)?)", ticker)
+    m = re.match(r"KX(BTC|ETH)[DW]-\w+-T?(\d+(?:\.\d+)?)", ticker)
     if not m:
         return None, None
     return m.group(1), float(m.group(2))
