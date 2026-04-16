@@ -240,6 +240,7 @@ class DeltaAgent(BaseAgent):
             sig["true_prob"]         = true_prob
             sig["arb_series"]        = series
             sig["exit_trigger"]      = "gap closes to ≤ 2% or our side ≥ 85¢"
+            sig["max_hold_minutes"]  = 240  # 4 hours — arb takes time to resolve
 
             if market.days_to_settlement > 1:
                 sig["max_size_dollars"] = 2
@@ -290,6 +291,7 @@ class DeltaAgent(BaseAgent):
         signal["signal"]["search_query"]         = search_q
         signal["signal"]["arb_series"]           = series
         signal["signal"]["min_gap_required"]     = 0.08
+        signal["signal"]["max_hold_minutes"]     = 240  # 4 hours — arb takes time to resolve
 
         self.submit_signal(signal)
         logger.info(

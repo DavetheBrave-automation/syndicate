@@ -14,6 +14,20 @@ _n = _yaml.safe_load(open(_cfg_path)).get('notifications', {})
 SYNDICATE_WEBHOOK = _n.get('discord_webhook', '')
 
 
+def post_exit(ticker: str, side: str, qty: int, entry: int, exit_price: int,
+              pnl: float, reason: str, agent: str, paper: bool = True) -> None:
+    """Fire-and-forget exit notification. Shows actual contract cost for NO positions."""
+    prefix = "🧪 [PAPER]" if paper else "✅"
+    color = "WIN ✅" if pnl > 0 else "LOSS ❌"
+    pnl_str = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
+    msg = (
+        f"{prefix} EXIT | {color} | {pnl_str} | {ticker}\n"
+        f"{side.upper()} {qty}x | Entry: {entry}¢ → Exit: {exit_price}¢\n"
+        f"Agent: {agent} | {reason}"
+    )
+    post(msg)
+
+
 def post(message: str, emoji: str = "🎯") -> None:
     """Fire-and-forget text post to Syndicate Discord channel. Never raises."""
     if not SYNDICATE_WEBHOOK:

@@ -282,14 +282,24 @@ def close_position(position, exit_price: float, exit_reason: str) -> bool:
                 "[PAPER] Simulated exit: %s %s %dx @ %.3f | spread=%.3f pnl=$%.2f | %s",
                 side.upper(), ticker, quantity, exit_price, spread, pnl, exit_reason,
             )
+            if position.side == "no":
+                display_entry = 100 - position.entry_price  # actual NO cost
+                display_exit  = int((1.0 - exit_price) * 100)
+            else:
+                display_entry = position.entry_price
+                display_exit  = int(exit_price * 100)
             try:
-                from notifications.discord import post as _discord_post
-                _discord_post(f"PAPER EXIT: {ticker} pnl={pnl:+.2f}")
+                from notifications.discord import post_exit as _discord_post_exit
+                _discord_post_exit(
+                    ticker, side, quantity,
+                    display_entry, display_exit,
+                    pnl, exit_reason, position.agent_name, paper=True,
+                )
             except Exception:
                 pass
             try:
                 from notifications.telegram import post as _tg_post
-                _tg_post(f"PAPER EXIT: {ticker} pnl={pnl:+.2f}")
+                _tg_post(f"PAPER EXIT: {ticker} {side.upper()} pnl={pnl:+.2f}")
             except Exception:
                 pass
             _record_outcome(position, exit_price, exit_reason, pnl, spread=spread)
