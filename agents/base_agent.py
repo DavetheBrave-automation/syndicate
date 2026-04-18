@@ -237,7 +237,8 @@ class BaseAgent(ABC):
                 data = json.load(f)
             self._eval_cooldowns = data.get(self.name, {})
             logger.debug("[%s] Loaded %d cooldowns from disk", self.name, len(self._eval_cooldowns))
-        except Exception:
+        except Exception as e:
+            logger.warning("[%s] _load_cooldowns failed (%s) — starting with empty cooldowns", self.name, e)
             self._eval_cooldowns = {}
 
     def _save_cooldowns(self) -> None:
@@ -246,7 +247,8 @@ class BaseAgent(ABC):
             try:
                 with open(COOLDOWN_PATH, encoding="utf-8") as f:
                     data = json.load(f)
-            except Exception:
+            except Exception as e:
+                logger.warning("[%s] _save_cooldowns: could not read existing file (%s) — will overwrite", self.name, e)
                 data = {}
             data[self.name] = self._eval_cooldowns
             tmp = COOLDOWN_PATH + ".tmp"
@@ -380,8 +382,7 @@ class BaseAgent(ABC):
             )
             return None
 
-        conviction_int   = _tier_to_conviction(conviction_tier)
-        max_size_dollars = int(self.get_bet_size(conviction_int))
+        max_size_dollars = int(self.get_bet_size(conviction_tier))
 
         mem            = self.load_memory()
         memory_rules   = mem.get("rules", [])
@@ -829,13 +830,52 @@ class BaseAgent(ABC):
     # Sizing
     # =========================================================================
 
-    def get_bet_size(self, conviction: int) -> float:
+    def get_bet_size(self, tier: str) -> float:
         """
-        conviction int 1-5 → dollar bet size $1.00-$5.00, clamped.
-        Tier 1 flat = $1.00.
+        Compute position size: conviction_sizing default capped by performance tier max.
+        Conviction tier sets the target size; agent's performance tier caps it.
+
+        Example log:
+          [AXIOM] sizing: conviction=HIGH_CONVICTION base=$100 tier=QUALIFIED cap=$250 → $100
+          [CIPHER] sizing: conviction=HIGH_CONVICTION base=$100 tier=PROBATION cap=$25 → $25
         """
-        clamped = max(1, min(5, conviction))
-        return float(clamped)
+        # 1. Conviction-based size from conviction_sizing config
+        _CONVICTION_FALLBACKS = {
+            "GLITCH":           25.0,
+            "HIGH_CONVICTION": 100.0,
+            "PROPHECY":        300.0,
+        }
+        conviction_size = _CONVICTION_FALLBACKS.get(tier, 25.0)
+        try:
+            import yaml  # noqa: PLC0415
+            cfg_path = os.path.join(_SYNDICATE_ROOT, "syndicate_config.yaml")
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f)
+            tier_cfg = cfg.get("conviction_sizing", {}).get(tier, {})
+            default  = tier_cfg.get("default")
+            if default is not None:
+                conviction_size = float(default)
+        except Exception as e:
+            logger.warning("[%s] get_bet_size config read failed: %s", self.name, e)
+
+        # 2. Performance-gated max position for this agent
+        agent_max  = 25.0   # probation floor as hard fallback
+        agent_tier = "probation"
+        try:
+            from core.agent_tier_manager import get_max_position, get_agent_tier  # noqa: PLC0415
+            agent_max  = get_max_position(self.name)
+            agent_tier = get_agent_tier(self.name)
+        except Exception as e:
+            logger.warning("[%s] get_bet_size tier lookup failed: %s", self.name, e)
+
+        # 3. Lower cap wins
+        final_size = min(conviction_size, agent_max)
+
+        logger.info(
+            "[%s] sizing: conviction=%s base=$%.0f tier=%s cap=$%.0f → $%.0f",
+            self.name, tier, conviction_size, agent_tier.upper(), agent_max, final_size,
+        )
+        return final_size
 
     # =========================================================================
     # Bench helpers

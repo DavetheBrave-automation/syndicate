@@ -153,6 +153,9 @@ def _is_sweepable(fname: str) -> bool:
     # Never sweep TC-facing files — PS1 watcher needs to read them
     if fname.endswith("_signal.json") or fname.endswith("_decision.json"):
         return False
+    # Never sweep lesson/postmortem files — gate needs to process them; sweeper loss confirmed 2026-04-17
+    if fname.endswith("_lesson.json") or fname.endswith("_postmortem.json"):
+        return False
     # Sweep: velocity_*, new_market_*, game_live_*, *.tmp, and unknown old files
     return True
 
@@ -337,9 +340,10 @@ def _gate_poll_loop():
     """
     Polls triggers/ for decision files every second.
 
-    Two file patterns:
-      - decision.json          — panel flow (parse_decision.py output)
-      - {name}_decision.json   — agent flow (wake_syndicate.ps1 output)
+    Three file patterns:
+      - decision.json           — panel flow (parse_decision.py output)
+      - {name}_decision.json    — agent entry signal flow (wake_syndicate.ps1)
+      - {name}_exit_decision.json — TC exit review flow (wake_syndicate.ps1)
 
     Runs as a daemon thread.
     """
@@ -350,9 +354,13 @@ def _gate_poll_loop():
             # Panel flow
             if os.path.exists(_DECISION_PATH):
                 _process_decision()
-            # Agent decision files — scan once per cycle
+            # Scan trigger files once per cycle
             for fname in os.listdir(_triggers):
-                if fname.endswith("_decision.json") and fname != "decision.json":
+                # Exit review decisions — dedicated handler (must check before agent decision)
+                if fname.endswith("_exit_decision.json"):
+                    _process_exit_decision(os.path.join(_triggers, fname))
+                # Agent entry decisions — excludes exit_decision files
+                elif fname.endswith("_decision.json") and fname != "decision.json":
                     _process_agent_decision(os.path.join(_triggers, fname))
         except Exception as e:
             logger.error("[Gate] Poll error: %s", e)
@@ -418,7 +426,7 @@ def _process_agent_decision(path: str) -> None:
 
     # bet_size from TC → size expected by _act_on_decision
     if "size" not in decision:
-        decision["size"] = decision.get("bet_size", 2)
+        decision["size"] = decision.get("bet_size", 25)  # GLITCH floor fallback
 
     # target_exit_price → target_price
     if "target_price" not in decision:
@@ -429,13 +437,14 @@ def _process_agent_decision(path: str) -> None:
         fname = os.path.basename(path)
         decision["agent_name"] = fname.replace("_decision.json", "").upper()
 
-    ticker   = decision.get("ticker", "UNKNOWN")
-    size     = int(decision.get("size", 0) or 0)
-    edge_pct = float(decision.get("edge_pct", decision.get("conviction", 0)) or 0)
+    ticker          = decision.get("ticker", "UNKNOWN")
+    size            = int(decision.get("size", 0) or 0)
+    edge_pct        = float(decision.get("edge_pct", decision.get("conviction", 0)) or 0)
+    conviction_tier = decision.get("conviction_tier", "?")
 
     logger.info(
-        "[Gate] Agent decision: ticker=%s verdict=%s size=$%d",
-        ticker, verdict, size,
+        "[Gate] Agent decision: ticker=%s verdict=%s tier=%s size=$%d edge=%.1f%%",
+        ticker, verdict, conviction_tier, size, edge_pct,
     )
 
     if verdict == "EXECUTE":
@@ -445,6 +454,92 @@ def _process_agent_decision(path: str) -> None:
 
     with _gate_pending_lock:
         _gate_pending.pop(ticker, None)
+
+
+def _process_exit_decision(path: str) -> None:
+    """
+    Read and act on a TC exit review decision ({name}_exit_decision.json).
+
+    TC responds with: { "decision": "EXIT"|"HOLD", "reasoning": str,
+                        "ticker": str (injected by gate), "agent": str }
+
+    EXIT → get current market price, call order_manager.close_position()
+    HOLD → log clearly and return (no state change, no DB write)
+
+    Either way, calls _scalper_engine.record_tc_exit_review() to start
+    the 60s hysteresis cooldown.
+    """
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            decision = json.load(f)
+        os.remove(path)
+    except Exception as e:
+        logger.error("[TC Exit] Could not read/delete exit decision %s: %s", path, e)
+        return
+
+    fname      = os.path.basename(path)
+    tc_verdict = decision.get("decision", "HOLD").upper()
+    ticker     = decision.get("ticker", "UNKNOWN")
+    agent      = decision.get("agent",
+                              fname.replace("_exit_decision.json", "").upper())
+    reasoning  = (decision.get("reasoning") or "").strip()
+
+    # Get current price for hysteresis tracking regardless of verdict
+    market      = state.get_market(ticker)
+    current_yes = market.yes_price if market else 0.0
+
+    # Record review — starts 60s cooldown and records price for 2¢ gate
+    try:
+        _scalper_engine.record_tc_exit_review(ticker, current_yes)
+    except Exception:
+        pass  # engine not yet initialised at boot edge case
+
+    if tc_verdict != "EXIT":
+        logger.info(
+            "[TC Exit Review] HOLD: %s %s — position retained. reason=%s",
+            agent, ticker, reasoning[:80] if reasoning else "none given",
+        )
+        return
+
+    # EXIT verdict — close the position
+    position = state.get_position(ticker)
+    if position is None:
+        logger.info(
+            "[TC Exit Review] EXIT: %s — no open position found (already closed).", ticker,
+        )
+        return
+
+    if state.is_pending(ticker):
+        logger.info(
+            "[TC Exit Review] EXIT: %s — close already in flight, skipping.", ticker,
+        )
+        return
+
+    if current_yes <= 0:
+        logger.warning(
+            "[TC Exit Review] EXIT: %s — no market price available, cannot close.", ticker,
+        )
+        return
+
+    exit_reason = f"TC exit review: EXIT ({agent})"
+    if reasoning:
+        exit_reason += f" — {reasoning[:80]}"
+
+    logger.info(
+        "[TC Exit Review] EXIT: %s %s — closing at YES=%.3f | %s",
+        agent, ticker, current_yes, exit_reason,
+    )
+
+    try:
+        order_manager.close_position(
+            position=position,
+            exit_price=current_yes,
+            exit_reason=exit_reason,
+        )
+    except Exception as exc:
+        logger.error(
+            "[TC Exit Review] close_position failed for %s: %s", ticker, exc, exc_info=True,
+        )
 
 
 def _act_on_decision(ticker: str, verdict: str, size_dollars: int, decision: dict):
@@ -478,6 +573,12 @@ def _act_on_decision(ticker: str, verdict: str, size_dollars: int, decision: dic
     # Any agent returning hold_to_settlement=True in its decision gets the same treatment.
     is_htsr = (agent_name == "AXIOM") or bool(decision.get("hold_to_settlement", False))
 
+    # Per-agent default max_hold_minutes (used when TC decision omits the field).
+    # DELTA signals set max_hold_minutes=240 but TC doesn't always pass it through.
+    # Fix: source the default from a known-correct per-agent map.
+    _AGENT_MAX_HOLD_DEFAULTS = {"DELTA": 240}
+    _default_max_hold = _AGENT_MAX_HOLD_DEFAULTS.get(agent_name, 60)
+
     # Build a minimal rule dict for order_manager
     rule = {
         "ticker":            ticker,
@@ -490,11 +591,12 @@ def _act_on_decision(ticker: str, verdict: str, size_dollars: int, decision: dic
         "created_by":        agent_name,
         "reasoning":         reasoning,
         "edge_pct":          float(decision.get("edge_pct", decision.get("conviction", 0)) or 0),
+        "conviction_tier":   decision.get("conviction_tier", "?"),
         # Exit philosophy — HTSR (hold-to-resolution) vs scalp
         "hold_to_settlement": is_htsr,
         "target_exit_pct":   2.0  if is_htsr else float(decision.get("target_exit_pct", 0.20)),
         "stop_loss_pct":     0.50 if is_htsr else float(decision.get("stop_loss_pct",   0.30)),
-        "max_hold_minutes":  4320 if is_htsr else int(decision.get("max_hold_minutes",  60)),
+        "max_hold_minutes":  4320 if is_htsr else int(decision.get("max_hold_minutes",  _default_max_hold)),
     }
 
     # Determine the actual contract price for the side we're buying
@@ -505,9 +607,23 @@ def _act_on_decision(ticker: str, verdict: str, size_dollars: int, decision: dic
     else:
         contract_price = current_price
 
-    # Quantity: size_dollars / contract_price, floored at 1, capped at 99 (Kalshi limit)
+    # CIPHER hard cap: max 10 contracts at execution layer.
+    # The signal layer (cipher.py) also caps max_size_dollars, but TC's bet_size can override it.
+    # This enforces the cap regardless of what TC returns.
+    # Remove when CIPHER edge is re-validated at larger scale (see audits/2026-04-18_deep_excavation.md).
+    if agent_name == "CIPHER" and contract_price > 0:
+        cipher_max_dollars = max(1, int(10 * contract_price))
+        if size_dollars > cipher_max_dollars:
+            logger.warning(
+                "[Gate] CIPHER hard cap applied: $%d → $%d (10-contract limit, %.2f/contract)",
+                size_dollars, cipher_max_dollars, contract_price,
+            )
+            size_dollars = cipher_max_dollars
+
+    # Quantity: size_dollars / contract_price, floored at 1.
+    # No 99-contract cap here — order_manager chunks oversized positions automatically.
     if contract_price > 0:
-        quantity = min(99, max(1, int(size_dollars / contract_price)))
+        quantity = max(1, int(size_dollars / contract_price))
     else:
         quantity = 1
 

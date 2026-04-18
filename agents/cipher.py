@@ -294,6 +294,22 @@ class CipherAgent(BaseAgent):
 
         YES side: buy when YES entries historically win on this pattern
         NO side:  buy when NO entries historically win on this pattern
+
+        ⚠️  DO NOT "FIX" CIPHER TO ALWAYS BUY THE CHEAP SIDE ⚠️
+
+        CIPHER intentionally enters at 60-80¢ YES prices. Unlike AXIOM (which always
+        buys the cheap statistical side), CIPHER uses pattern recognition on historical
+        trade data — where a contract at 70¢ YES that has historically won ~80% of the
+        time is a LEGITIMATE long entry, not a direction error.
+
+        Validation (2026-04-16, audits/2026-04-16_sizing_tier_cipher_audit.md):
+          - 20 closed trades, 80% win rate, avg entry 67.7¢ YES, total P&L +$7.93
+          - Side selection is data-driven (YES vs NO win-rate comparison each call)
+          - No hardcoded side — unlike ACE's confirmed YES-only bug (ace.py line ~175)
+
+        This edge model COMPLEMENTS AXIOM's cheap-side model; it does not duplicate it.
+        If CIPHER's win rate regresses below 50% on a 20-trade trailing window, THEN
+        investigate. Until then, do not modify side-selection or price-gate logic.
         """
         self._maybe_post_validation_report()
 
@@ -369,6 +385,19 @@ class CipherAgent(BaseAgent):
             market, conviction_tier, edge_pct, best_side,
             entry_price, target_price, stop_price, reasoning, game,
         )
+        # CIPHER scale cap: edge model was calibrated on 3-8 contract trades.
+        # Cap at 10 contracts until edge is re-validated at larger sizes.
+        # See audits/2026-04-18_deep_excavation.md — remove when re-validated.
+        if signal is not None:
+            contract_cost = signal["signal"].get("contract_cost", entry_price)
+            if contract_cost > 0:
+                cap_dollars = round(10 * contract_cost, 2)
+                if signal["signal"].get("max_size_dollars", 0) > cap_dollars:
+                    signal["signal"]["max_size_dollars"] = max(1, int(cap_dollars))
+                    logger.info(
+                        "[CIPHER] Position capped at 10 contracts ($%.2f) pending scale re-validation",
+                        cap_dollars,
+                    )
         self.submit_signal(signal)
         logger.info(
             "[CIPHER] Signal: %s %s win_rate=%.1f%% (n=%d) tier=%s",

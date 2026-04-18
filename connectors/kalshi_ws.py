@@ -270,8 +270,8 @@ class KalshiWS:
         elif msg_type == "ping":
             try:
                 ws.send(json.dumps({"type": "pong"}))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("[KalshiWS] pong send failed (connection may be stale): %s", e)
 
         # ── Error ──
         elif msg_type == "error":

@@ -45,6 +45,11 @@ def _load_config() -> dict:
     return _cfg_cache or {}
 
 
+def _config_ok() -> bool:
+    """Return False if config has never loaded successfully."""
+    return _cfg_cache is not None
+
+
 def _risk_cfg() -> dict:
     """Return the risk sub-section of config, with safe defaults."""
     cfg = _load_config()
@@ -74,7 +79,23 @@ def _per_class_max(contract_class: str, risk: dict) -> float:
 # Public API
 # ---------------------------------------------------------------------------
 
-def check_trade(ticker: str, contract_class: str, proposed_dollars: float) -> tuple[bool, str]:
+def _get_agent_exposure(agent_name: str) -> float:
+    """Sum current open position exposure for a specific agent."""
+    if not agent_name:
+        return 0.0
+    total = 0.0
+    for pos in state.get_all_positions().values():
+        if getattr(pos, "agent_name", "") == agent_name:
+            total += (pos.entry_price / 100.0) * pos.quantity
+    return total
+
+
+def check_trade(
+    ticker: str,
+    contract_class: str,
+    proposed_dollars: float,
+    agent_name: str = "",
+) -> tuple[bool, str]:
     """
     Gate a proposed trade.
 
@@ -86,9 +107,15 @@ def check_trade(ticker: str, contract_class: str, proposed_dollars: float) -> tu
         1. WATCH class → always blocked
         2. Hard stop already breached → block all new trades
         3. Per-class cap not exceeded by proposed_dollars
-        4. Total exposure + proposed_dollars <= max_total_exposure
+        4. Per-agent exposure cap (if agent_name provided)
+        5. Total exposure + proposed_dollars <= max_total_exposure
     """
     cc = contract_class.upper()
+    _load_config()
+    if not _config_ok():
+        # Config never loaded — halt all trading until human resolves
+        logger.critical("[ExposureManager] Config load failed — HALTING all trades until config is fixed.")
+        return False, "CONFIG LOAD FAILURE: exposure_manager cannot read syndicate_config.yaml — no trades allowed"
     risk = _risk_cfg()
 
     # 1. WATCH is never tradeable
@@ -96,7 +123,7 @@ def check_trade(ticker: str, contract_class: str, proposed_dollars: float) -> tu
         return False, "WATCH contracts are not traded"
 
     # 2. Hard stop already breached — no new entries
-    hard_stop = float(risk.get("hard_stop_loss", 50.0))
+    hard_stop = float(risk.get("hard_stop_loss", 2000.0))
     daily_loss = state.get_daily_loss()
     if daily_loss >= hard_stop:
         return False, (
@@ -115,8 +142,18 @@ def check_trade(ticker: str, contract_class: str, proposed_dollars: float) -> tu
             f"max_per_trade_{cc.lower()}=${class_max:.2f}"
         )
 
-    # 4. Total exposure headroom
-    max_total = float(risk.get("max_total_exposure", 50.0))
+    # 4. Per-agent exposure cap
+    max_per_agent = float(risk.get("max_per_agent_exposure", 0.0))
+    if agent_name and max_per_agent > 0:
+        agent_exposure = _get_agent_exposure(agent_name)
+        if agent_exposure + proposed_dollars > max_per_agent:
+            return False, (
+                f"Per-agent cap for {agent_name}: current=${agent_exposure:.2f}, "
+                f"proposed=${proposed_dollars:.2f}, max=${max_per_agent:.2f}"
+            )
+
+    # 5. Total exposure headroom
+    max_total = float(risk.get("max_total_exposure", 5000.0))
     current_total = state.get_total_exposure()
     if current_total + proposed_dollars > max_total:
         headroom = max(0.0, max_total - current_total)
@@ -127,8 +164,8 @@ def check_trade(ticker: str, contract_class: str, proposed_dollars: float) -> tu
         )
 
     logger.debug(
-        "[ExposureManager] ALLOW %s %s $%.2f | total_after=$%.2f",
-        cc, ticker, proposed_dollars, current_total + proposed_dollars,
+        "[ExposureManager] ALLOW %s %s $%.2f | agent=%s total_after=$%.2f",
+        cc, ticker, proposed_dollars, agent_name or "?", current_total + proposed_dollars,
     )
     return True, ""
 
