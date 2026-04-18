@@ -1,0 +1,5 @@
+6030e6e Seed echo_blocks.json retroactive CIPHER block + add validation audit files
+27a361c Fix CIPHER scale cap, DELTA max_hold, config halt, sweeper protection, bare-excepts
+9bac3c7 Fix watchdog dual-process monitoring + gate heartbeat + ECHO block enforcement
+5860c0f Fix ETH series: KXETHUSD→KXETHD in connector, add KXETHUSD fallback to DIAMOND
+bd36468 Fix DIAMOND ticker regex (T prefix), TIDE/BLITZ velocity source (heartbeat-compatible)
