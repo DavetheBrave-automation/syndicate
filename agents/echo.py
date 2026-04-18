@@ -18,7 +18,7 @@ import sys
 import json
 import logging
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 _SYNDICATE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _SYNDICATE_ROOT)
@@ -27,9 +27,11 @@ from agents.base_agent import BaseAgent
 
 logger = logging.getLogger("syndicate.echo")
 
-_DB_PATH      = os.path.join(_SYNDICATE_ROOT, "logs", "syndicate_trades.db")
-_ECHO_MEMORY  = os.path.join(_SYNDICATE_ROOT, "memory", "ECHO.json")
-_DF_THRESHOLD = 3    # flag pattern after 3 D/F grades
+_DB_PATH       = os.path.join(_SYNDICATE_ROOT, "logs", "syndicate_trades.db")
+_ECHO_MEMORY   = os.path.join(_SYNDICATE_ROOT, "memory", "ECHO.json")
+_ECHO_BLOCKS   = os.path.join(_SYNDICATE_ROOT, "memory", "echo_blocks.json")
+_DF_THRESHOLD  = 3    # flag pattern after 3 D/F grades
+_BLOCK_HOURS   = 24   # hours an F-grade blocks re-entry on same pattern
 
 # Grade thresholds
 _SMALL_LOSS     = -0.50   # loss < $0.50 may be "bad luck B" not "D"
@@ -228,6 +230,9 @@ class EchoAgent(BaseAgent):
 
         self._save_echo_memory(mem)
 
+        if grade == "F":
+            self._write_echo_block(agent_name, series, bkt, pnl, trade_record)
+
         result = {
             "grade":        grade,
             "agent":        agent_name,
@@ -241,14 +246,43 @@ class EchoAgent(BaseAgent):
         )
         return result
 
+    def _write_echo_block(self, agent_name: str, series: str, bkt: str,
+                          pnl: float, trade_record: dict) -> None:
+        """Block re-entry on this pattern for _BLOCK_HOURS after an F grade."""
+        key = f"{agent_name}:{series}:{bkt}"
+        blocked_until = (
+            datetime.now(timezone.utc) + timedelta(hours=_BLOCK_HOURS)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        try:
+            try:
+                with open(_ECHO_BLOCKS, encoding="utf-8") as f:
+                    blocks = json.load(f)
+            except Exception:
+                blocks = {}
+            blocks[key] = {
+                "blocked_until": blocked_until,
+                "reason":        f"F grade: pnl=${pnl:.2f} on {agent_name} {series} {bkt}",
+                "source_trade_id": trade_record.get("trade_id", 0),
+                "created_at":    datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+            tmp = _ECHO_BLOCKS + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(blocks, f, indent=2)
+            os.replace(tmp, _ECHO_BLOCKS)
+            logger.info("[ECHO] Block written: %s blocked for %dh (until %s)",
+                        key, _BLOCK_HOURS, blocked_until)
+        except Exception as e:
+            logger.error("[ECHO] Failed to write echo block for %s: %s", key, e)
+
     # =========================================================================
     # Weekly report
     # =========================================================================
 
     def write_weekly_report(self) -> None:
         """
-        Synthesize last 7 days of grades.
-        Writes memory/echo_weekly_report.json and posts summary to Telegram.
+        Synthesize last 7 days of grades + current fleet tier standings.
+        Writes memory/echo_weekly_report.json.
+        Posts grade summary to Telegram and full tier report to Discord.
         """
         mem     = self._load_echo_memory()
         records = mem.get("grade_records", [])
@@ -280,16 +314,25 @@ class EchoAgent(BaseAgent):
         df_count   = sum(1 for r in recent if r["grade"] in ("D", "F"))
         quality    = round(ab_count / total * 100, 1) if total else 0.0
 
+        # Fleet tier standings
+        fleet_tiers = []
+        try:
+            from core.agent_tier_manager import get_all_tiers  # noqa: PLC0415
+            fleet_tiers = get_all_tiers()
+        except Exception as e:
+            logger.warning("[ECHO] Fleet tier lookup failed: %s", e)
+
         report = {
-            "period":          "last_7_days",
-            "total_grades":    total,
-            "ab_grades":       ab_count,
-            "df_grades":       df_count,
+            "period":           "last_7_days",
+            "total_grades":     total,
+            "ab_grades":        ab_count,
+            "df_grades":        df_count,
             "decision_quality": quality,
-            "top_patterns":    top_winners,
-            "weak_patterns":   top_losers,
-            "pattern_flags":   mem.get("pattern_flags", []),
-            "generated_at":    datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "top_patterns":     top_winners,
+            "weak_patterns":    top_losers,
+            "pattern_flags":    mem.get("pattern_flags", []),
+            "fleet_tiers":      fleet_tiers,
+            "generated_at":     datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
 
         # Write report
@@ -301,7 +344,7 @@ class EchoAgent(BaseAgent):
         except Exception as e:
             logger.error("[ECHO] Weekly report write failed: %s", e)
 
-        # Telegram notification
+        # Telegram — grade summary
         try:
             import notifications.telegram as tg
             summary = (
@@ -313,6 +356,63 @@ class EchoAgent(BaseAgent):
             tg.post(summary, "📊")
         except Exception:
             pass
+
+        # Discord — full fleet tier report
+        self._post_tier_report_discord(fleet_tiers, quality, total)
+
+    def _post_tier_report_discord(self, fleet_tiers: list, quality: float, total: int) -> None:
+        """Post weekly fleet tier standings to Discord."""
+        try:
+            import yaml, urllib.request  # noqa: PLC0415
+            cfg_path = os.path.join(_SYNDICATE_ROOT, "syndicate_config.yaml")
+            with open(cfg_path, encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+            webhook = cfg.get("notifications", {}).get("discord_webhook", "")
+            if not webhook:
+                return
+        except Exception:
+            return
+
+        try:
+            _TIER_ICON = {
+                "elite":     "[E]",
+                "proven":    "[P]",
+                "qualified": "[Q]",
+                "probation": "[X]",
+            }
+            _TIER_MAX = {
+                "elite": 1000, "proven": 500, "qualified": 250, "probation": 25,
+            }
+
+            lines = ["**FLEET INTELLIGENCE — Weekly Tier Report**\n"]
+            for entry in sorted(fleet_tiers, key=lambda x: -_TIER_MAX.get(x["tier"], 0)):
+                icon    = _TIER_ICON.get(entry["tier"], "[?]")
+                wr_pct  = f"{entry['win_rate']:.0%}"
+                lines.append(
+                    f"{icon} **{entry['agent']}** | `{entry['tier'].upper()}` | "
+                    f"max=`${entry['max_position']}` | "
+                    f"{entry['trades']} trades @ {wr_pct} WR"
+                )
+
+            lines.append(f"\nDecision quality: `{quality:.1f}%` over `{total}` grades this week.")
+
+            payload = json.dumps({
+                "embeds": [{
+                    "title":       "ECHO — Weekly Fleet Intelligence",
+                    "description": "\n".join(lines),
+                    "color":       7506394,  # blue
+                }]
+            }).encode("utf-8")
+
+            req = urllib.request.Request(
+                webhook,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            urllib.request.urlopen(req, timeout=10)
+            logger.info("[ECHO] Fleet tier report posted to Discord.")
+        except Exception as e:
+            logger.warning("[ECHO] Discord fleet tier post failed: %s", e)
 
     # =========================================================================
     # Echo memory helpers (separate from agent memory in base_agent)

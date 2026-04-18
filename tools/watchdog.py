@@ -1,12 +1,13 @@
 """
-watchdog.py — Syndicate engine health monitor.
+watchdog.py — Syndicate dual-process health monitor.
 
-Watches logs/syndicate.log mtime. If the log goes stale for > DEAD_THRESHOLD
-seconds the engine is considered dead, restarted, and a Telegram alert sent.
+Monitors BOTH the engine (main.py) and the gate (wake_syndicate.ps1).
 
-Detection lag: CHECK_INTERVAL (30s) + DEAD_THRESHOLD (150s) = ~3 minutes max.
-The engine writes a status line every 60s, so 150s gives 2+ missed heartbeats
-before we declare it dead.
+Engine detection:  log mtime stale > DEAD_THRESHOLD (150s)
+Gate detection:    process dead OR heartbeat file mtime stale > GATE_HB_THRESHOLD (180s)
+
+Restart backoff:   0s, 30s, 120s, 300s — then alert-only after 4 attempts.
+Gate died twice in one session on 2026-04-17 with zero detection. This is the fix.
 """
 
 import os
@@ -25,24 +26,32 @@ import json
 REPO_ROOT       = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PYTHON          = r"C:\Python314\python.exe"
 MAIN_PY         = os.path.join(REPO_ROOT, "main.py")
+GATE_PS1        = os.path.join(REPO_ROOT, "intelligence", "wake_syndicate.ps1")
+
 ENGINE_LOG      = os.path.join(REPO_ROOT, "logs", "syndicate.log")
+GATE_LOG        = os.path.join(REPO_ROOT, "logs", "wake_syndicate.log")
+GATE_ERR_LOG    = os.path.join(REPO_ROOT, "logs", "wake_syndicate_err.log")
+GATE_HEARTBEAT  = os.path.join(REPO_ROOT, "logs", "gate_heartbeat.json")
 WATCHDOG_LOG    = os.path.join(REPO_ROOT, "logs", "watchdog.log")
 CONFIG_YAML     = os.path.join(REPO_ROOT, "syndicate_config.yaml")
 
 PID_FILE        = os.path.join(REPO_ROOT, "syndicate.pid")
-ENGINE_NAME     = "Syndicate"
-DEAD_THRESHOLD  = 150   # seconds — 2+ missed 60s status heartbeats
-CHECK_INTERVAL  = 30    # seconds between health checks
+
+DEAD_THRESHOLD      = 150   # engine: seconds of log staleness before declared dead
+GATE_HB_THRESHOLD   = 180   # gate: seconds of heartbeat staleness before declared dead
+CHECK_INTERVAL      = 30    # seconds between health checks
+
+BACKOFF_DELAYS      = [0, 30, 120, 300]   # seconds to wait before each restart attempt
 
 # ---------------------------------------------------------------------------
-# Logging (watchdog's own log)
+# Logging
 # ---------------------------------------------------------------------------
 
 os.makedirs(os.path.join(REPO_ROOT, "logs"), exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)sZ %(levelname)-8s watchdog — %(message)s",
+    format="%(asctime)sZ %(levelname)-8s watchdog -- %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S",
     handlers=[
         logging.FileHandler(WATCHDOG_LOG, encoding="utf-8"),
@@ -51,7 +60,7 @@ logging.basicConfig(
 logger = logging.getLogger("watchdog")
 
 # ---------------------------------------------------------------------------
-# Telegram (stdlib only — no local imports)
+# Telegram (stdlib only)
 # ---------------------------------------------------------------------------
 
 def _load_telegram_creds():
@@ -80,39 +89,57 @@ def _telegram(msg: str) -> None:
         logger.warning("Telegram send failed: %s", e)
 
 # ---------------------------------------------------------------------------
+# Backoff helper
+# ---------------------------------------------------------------------------
+
+def _get_backoff_delay(restart_count: int) -> int:
+    """Return seconds to wait before this restart. -1 = alert-only mode."""
+    idx = restart_count - 1
+    if idx < len(BACKOFF_DELAYS):
+        return BACKOFF_DELAYS[idx]
+    return -1   # exceeded all retries — alert only
+
+# ---------------------------------------------------------------------------
 # Engine restart
 # ---------------------------------------------------------------------------
 
 def _kill_old_process() -> None:
-    """Kill existing Syndicate process via PID file before spawning a new one."""
     if not os.path.exists(PID_FILE):
         return
     try:
         with open(PID_FILE) as f:
             old_pid = int(f.read().strip())
-        # taskkill on Windows — graceful first, then force
         result = subprocess.run(
             ["taskkill", "/PID", str(old_pid), "/T"],
             capture_output=True, timeout=5,
         )
         if result.returncode == 0:
-            logger.info("[%s] Killed old process PID %d.", ENGINE_NAME, old_pid)
+            logger.info("[Engine] Killed old process PID %d.", old_pid)
         else:
-            # Already dead — force kill
             subprocess.run(["taskkill", "/F", "/PID", str(old_pid), "/T"],
                            capture_output=True, timeout=5)
-        time.sleep(2)   # let it die cleanly
+        time.sleep(2)
     except Exception as e:
-        logger.warning("[%s] Could not kill old process: %s", ENGINE_NAME, e)
-    # Remove stale PID file so new process can acquire the lock
+        logger.warning("[Engine] Could not kill old process: %s", e)
     try:
         os.remove(PID_FILE)
     except Exception:
         pass
 
 
-def _restart_engine() -> None:
-    """Kill old process then spawn main.py as a detached hidden process."""
+def _restart_engine(restart_count: int) -> bool:
+    """Kill old process, apply backoff, spawn main.py. Returns False if alert-only mode."""
+    delay = _get_backoff_delay(restart_count)
+    if delay < 0:
+        msg = f"[Engine] ALERT-ONLY — exceeded {len(BACKOFF_DELAYS)} restart attempts. Manual intervention required."
+        logger.critical(msg)
+        _telegram(msg)
+        return False
+
+    if delay > 0:
+        logger.info("[Engine] Backoff %ds before restart #%d.", delay, restart_count)
+        time.sleep(delay)
+
     _kill_old_process()
     try:
         CREATE_NO_WINDOW      = 0x08000000
@@ -124,54 +151,121 @@ def _restart_engine() -> None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        logger.info("[%s] Engine restarted.", ENGINE_NAME)
+        logger.info("[Engine] Restarted (attempt #%d).", restart_count)
+        return True
     except Exception as e:
-        logger.error("[%s] Restart failed: %s", ENGINE_NAME, e)
-        raise
+        logger.error("[Engine] Restart failed: %s", e)
+        return False
+
+# ---------------------------------------------------------------------------
+# Gate restart
+# ---------------------------------------------------------------------------
+
+def _restart_gate(restart_count: int) -> bool:
+    """Apply backoff, spawn wake_syndicate.ps1. Returns False if alert-only mode."""
+    delay = _get_backoff_delay(restart_count)
+    if delay < 0:
+        msg = f"[Gate] ALERT-ONLY — exceeded {len(BACKOFF_DELAYS)} restart attempts. Manual intervention required."
+        logger.critical(msg)
+        _telegram(msg)
+        return False
+
+    if delay > 0:
+        logger.info("[Gate] Backoff %ds before restart #%d.", delay, restart_count)
+        time.sleep(delay)
+
+    try:
+        CREATE_NO_WINDOW      = 0x08000000
+        CREATE_NEW_PROC_GROUP = 0x00000200
+        gate_stdout = open(GATE_LOG,     "a", encoding="utf-8")
+        gate_stderr = open(GATE_ERR_LOG, "a", encoding="utf-8")
+        subprocess.Popen(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-File", GATE_PS1],
+            cwd=REPO_ROOT,
+            creationflags=CREATE_NO_WINDOW | CREATE_NEW_PROC_GROUP,
+            stdout=gate_stdout,
+            stderr=gate_stderr,
+        )
+        logger.info("[Gate] Restarted (attempt #%d).", restart_count)
+        return True
+    except Exception as e:
+        logger.error("[Gate] Restart failed: %s", e)
+        return False
 
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
 
 def main():
-    logger.info("[%s] Watchdog started. DEAD_THRESHOLD=%ds CHECK_INTERVAL=%ds",
-                ENGINE_NAME, DEAD_THRESHOLD, CHECK_INTERVAL)
-    _telegram(f"[{ENGINE_NAME}] Watchdog online.")
+    logger.info(
+        "Watchdog started. Engine threshold=%ds Gate threshold=%ds interval=%ds",
+        DEAD_THRESHOLD, GATE_HB_THRESHOLD, CHECK_INTERVAL,
+    )
+    _telegram("[Syndicate] Watchdog online (dual-process monitoring: engine + gate).")
 
-    # last_good_ts: last time we saw a fresh log write
-    last_good_ts = time.time()
-    restart_count = 0
+    engine_last_good = time.time()
+    gate_last_good   = time.time()
+    engine_restarts  = 0
+    gate_restarts    = 0
+
+    # If gate heartbeat doesn't exist yet, give it 3 minutes to write first one
+    if not os.path.exists(GATE_HEARTBEAT):
+        gate_last_good = time.time()
 
     while True:
         time.sleep(CHECK_INTERVAL)
 
+        # ── Engine health ────────────────────────────────────────────────────
         try:
             if not os.path.exists(ENGINE_LOG):
-                logger.warning("[%s] Log file missing — triggering restart.", ENGINE_NAME)
-                raise FileNotFoundError(ENGINE_LOG)
-
-            mtime = os.path.getmtime(ENGINE_LOG)
-            if mtime > last_good_ts:
-                last_good_ts = mtime   # engine is alive and writing
-
-            stale = time.time() - last_good_ts
-            if stale > DEAD_THRESHOLD:
-                restart_count += 1
-                msg = (
-                    f"[{ENGINE_NAME}] Engine dead (log stale {stale:.0f}s). "
-                    f"Restart #{restart_count}."
-                )
-                logger.warning(msg)
-                _telegram(msg)
-                _restart_engine()
-                # Give the engine DEAD_THRESHOLD seconds to start writing before
-                # we consider it stale again.
-                last_good_ts = time.time()
+                logger.warning("[Engine] Log file missing.")
             else:
-                logger.debug("[%s] OK — log updated %.0fs ago.", ENGINE_NAME, stale)
+                mtime = os.path.getmtime(ENGINE_LOG)
+                if mtime > engine_last_good:
+                    engine_last_good = mtime
+
+            engine_stale = time.time() - engine_last_good
+            if engine_stale > DEAD_THRESHOLD:
+                engine_restarts += 1
+                msg = (
+                    f"[Engine] DEAD — log stale {engine_stale:.0f}s. "
+                    f"Restart #{engine_restarts}."
+                )
+                logger.critical(msg)
+                _telegram(msg)
+                if _restart_engine(engine_restarts):
+                    engine_last_good = time.time()
+            else:
+                logger.debug("[Engine] OK — log updated %.0fs ago.", engine_stale)
 
         except Exception as e:
-            logger.error("[%s] Health check error: %s", ENGINE_NAME, e)
+            logger.error("[Engine] Health check error: %s", e)
+
+        # ── Gate health ──────────────────────────────────────────────────────
+        try:
+            if os.path.exists(GATE_HEARTBEAT):
+                hb_mtime = os.path.getmtime(GATE_HEARTBEAT)
+                if hb_mtime > gate_last_good:
+                    gate_last_good = hb_mtime
+                    gate_restarts  = 0   # reset backoff on confirmed healthy heartbeat
+
+            gate_stale = time.time() - gate_last_good
+            if gate_stale > GATE_HB_THRESHOLD:
+                gate_restarts += 1
+                msg = (
+                    f"[Gate] DEAD — heartbeat stale {gate_stale:.0f}s. "
+                    f"Restart #{gate_restarts}."
+                )
+                logger.critical(msg)
+                _telegram(msg)
+                if _restart_gate(gate_restarts):
+                    gate_last_good = time.time()
+            else:
+                logger.debug("[Gate] OK — heartbeat %.0fs ago.", gate_stale)
+
+        except Exception as e:
+            logger.error("[Gate] Health check error: %s", e)
 
 
 if __name__ == "__main__":

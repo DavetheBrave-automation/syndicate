@@ -135,17 +135,42 @@ function ConvertTo-JsonSafe {
 # ---------------------------------------------------------------------------
 function Invoke-TC {
     param([string]$Prompt, [string]$Label)
-    Write-Host ("[Syndicate Gate] Invoking TC for " + $Label + " (15-30s)...")
-    $Output = $null
+    Write-Host ("[Syndicate Gate] Invoking TC for " + $Label + " (max 120s)...")
+    $TmpFile = $null
+    $rs      = $null
+    $ps      = $null
     try {
         # Write prompt to temp file — avoids Windows CLI arg length limit / newline truncation
         $TmpFile = [System.IO.Path]::GetTempFileName()
         [System.IO.File]::WriteAllText($TmpFile, $Prompt, [System.Text.Encoding]::UTF8)
-        $Output = Get-Content $TmpFile -Raw | & claude --print --output-format json 2>&1
-        Remove-Item $TmpFile -Force -ErrorAction SilentlyContinue
+
+        # Run claude in a runspace — inherits PATH so & claude resolves claude.cmd correctly,
+        # no new console window (unlike Start-Job), hard 120s timeout via WaitOne.
+        $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+        $rs.Open()
+        $ps = [System.Management.Automation.PowerShell]::Create()
+        $ps.Runspace = $rs
+        [void]$ps.AddScript("Get-Content '$TmpFile' -Raw | & claude --print --output-format json 2>&1")
+
+        $handle   = $ps.BeginInvoke()
+        $finished = $handle.AsyncWaitHandle.WaitOne(120000)
+
+        if (-not $finished) {
+            Write-Warning ("[Syndicate Gate] TC call timeout after 120s for " + $Label + " -- moving on")
+            $ps.Stop()
+            return $null
+        }
+
+        $Lines  = $ps.EndInvoke($handle)
+        $Output = $Lines -join "`n"
+
     } catch {
         Write-Warning ("[Syndicate Gate] claude CLI failed for " + $Label + ": $_")
         return $null
+    } finally {
+        if ($ps)     { try { $ps.Dispose()   } catch {} }
+        if ($rs)     { try { $rs.Close(); $rs.Dispose() } catch {} }
+        if ($TmpFile){ Remove-Item $TmpFile -Force -ErrorAction SilentlyContinue }
     }
     return Get-TcText -ClaudeOutput $Output
 }
@@ -192,6 +217,33 @@ function Invoke-AgentSignal {
         return
     }
 
+    # ── ECHO block check — reject signals from patterns ECHO flagged F ────────
+    $EchoBlockPath = Join-Path $SyndicateRoot "memory\echo_blocks.json"
+    if (Test-Path $EchoBlockPath) {
+        try {
+            $EchoBlocks = Get-Content $EchoBlockPath -Raw | ConvertFrom-Json
+            $SigTicker  = if ($Obj.signal -and $Obj.signal.PSObject.Properties["ticker"]) { $Obj.signal.ticker } else { "" }
+            $SigYesPrice = if ($Obj.signal -and $Obj.signal.PSObject.Properties["entry_price"]) { [float]$Obj.signal.entry_price } else { 0.5 }
+            $SigSeries  = $SigTicker.Split("-")[0].ToUpper()
+            $SigBkt     = if ($SigYesPrice -lt 0.20) { "0-20" } elseif ($SigYesPrice -lt 0.40) { "20-40" } elseif ($SigYesPrice -lt 0.60) { "40-60" } elseif ($SigYesPrice -lt 0.80) { "60-80" } else { "80-100" }
+            $BlockKey   = "${AgentName}:${SigSeries}:${SigBkt}"
+            $BlockEntry = $EchoBlocks.PSObject.Properties[$BlockKey]
+            if ($BlockEntry) {
+                $BlockedUntil = [DateTime]::Parse($BlockEntry.Value.blocked_until).ToUniversalTime()
+                if ([DateTime]::UtcNow -lt $BlockedUntil) {
+                    Write-Host ("[Syndicate Gate] [ECHO BLOCK] " + $AgentName + " " + $SigSeries + " " + $SigBkt + " blocked until " + $BlockedUntil.ToString("yyyy-MM-ddTHH:mm:ssZ") + " -- dropping: " + $BlockEntry.Value.reason)
+                    Remove-Item $SignalPath -Force -ErrorAction SilentlyContinue
+                    return
+                } else {
+                    # Expired block -- remove it
+                    $EchoBlocks.PSObject.Properties.Remove($BlockKey)
+                    $EchoBlocks | ConvertTo-Json -Depth 5 -Compress | Set-Content $EchoBlockPath -Encoding UTF8
+                    Write-Host ("[Syndicate Gate] [ECHO BLOCK] Expired block removed for " + $BlockKey)
+                }
+            }
+        } catch { }
+    }
+
     # Inject memory and signal into base_decision_prompt.txt
     $MemoryRulesJson  = ConvertTo-JsonSafe $Obj.memory_rules
     $RecentTradesJson = ConvertTo-JsonSafe $Obj.recent_trades
@@ -234,18 +286,48 @@ function Invoke-AgentSignal {
 
     $SageBriefing = "SAGE: Unavailable."
     $EchoWarning  = "ECHO: Unavailable."
-    try {
-        $SagePy = Join-Path $SyndicateRoot "tools\get_sage_briefing.py"
-        if (Test-Path $SagePy) {
-            $SageBriefing = (& python $SagePy --ticker $SignalTicker2 --yes_price $SignalYesPrice --class_ $SignalClass2 2>$null) -join ""
+    $SagePy = Join-Path $SyndicateRoot "tools\get_sage_briefing.py"
+    $EchoPy = Join-Path $SyndicateRoot "tools\get_echo_warning.py"
+    if (Test-Path $SagePy) {
+        $SageRs = $null; $SagePs = $null
+        try {
+            $SageRs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace(); $SageRs.Open()
+            $SagePs = [System.Management.Automation.PowerShell]::Create(); $SagePs.Runspace = $SageRs
+            [void]$SagePs.AddScript("& python '$SagePy' --ticker '$SignalTicker2' --yes_price $SignalYesPrice --class_ '$SignalClass2' 2>`$null")
+            $SageH = $SagePs.BeginInvoke()
+            if ($SageH.AsyncWaitHandle.WaitOne(60000)) {
+                $SageBriefing = ($SagePs.EndInvoke($SageH) -join "").Trim()
+                if (-not $SageBriefing) { $SageBriefing = "SAGE: Unavailable." }
+            } else {
+                Write-Warning "[Syndicate Gate] SAGE timeout after 60s for $AgentName -- skipping"
+                $SagePs.Stop()
+            }
+        } catch { Write-Warning "[Syndicate Gate] SAGE failed: $_" }
+        finally {
+            if ($SagePs) { try { $SagePs.Dispose() } catch {} }
+            if ($SageRs) { try { $SageRs.Close(); $SageRs.Dispose() } catch {} }
         }
-    } catch { }
-    try {
-        $EchoPy = Join-Path $SyndicateRoot "tools\get_echo_warning.py"
-        if (Test-Path $EchoPy) {
-            $EchoWarning = (& python $EchoPy --ticker $SignalTicker2 --agent $AgentName --yes_price $SignalYesPrice 2>$null) -join ""
+    }
+    if (Test-Path $EchoPy) {
+        $EchoRs = $null; $EchoPs = $null
+        try {
+            $EchoRs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace(); $EchoRs.Open()
+            $EchoPs = [System.Management.Automation.PowerShell]::Create(); $EchoPs.Runspace = $EchoRs
+            [void]$EchoPs.AddScript("& python '$EchoPy' --ticker '$SignalTicker2' --agent '$AgentName' --yes_price $SignalYesPrice 2>`$null")
+            $EchoH = $EchoPs.BeginInvoke()
+            if ($EchoH.AsyncWaitHandle.WaitOne(60000)) {
+                $EchoWarning = ($EchoPs.EndInvoke($EchoH) -join "").Trim()
+                if (-not $EchoWarning) { $EchoWarning = "ECHO: Unavailable." }
+            } else {
+                Write-Warning "[Syndicate Gate] ECHO timeout after 60s for $AgentName -- skipping"
+                $EchoPs.Stop()
+            }
+        } catch { Write-Warning "[Syndicate Gate] ECHO failed: $_" }
+        finally {
+            if ($EchoPs) { try { $EchoPs.Dispose() } catch {} }
+            if ($EchoRs) { try { $EchoRs.Close(); $EchoRs.Dispose() } catch {} }
         }
-    } catch { }
+    }
 
     $Prompt = $BaseDecisionPrompt
     $Prompt = $Prompt.Replace("{AGENT_NAME}", $AgentName)
@@ -277,21 +359,31 @@ function Invoke-AgentSignal {
 
     # Write decision file for main.py
     # Inject signal fields — TC may echo the other side; always use ours.
-    $SignalTicker    = if ($Obj.signal -and $Obj.signal.PSObject.Properties["ticker"])         { $Obj.signal.ticker }         else { "?" }
-    $SignalClass     = if ($Obj.signal -and $Obj.signal.PSObject.Properties["contract_class"]) { $Obj.signal.contract_class } else { "SWING" }
-    $SignalAgentName = if ($Obj.signal -and $Obj.signal.PSObject.Properties["agent_name"])     { $Obj.signal.agent_name }     else { $AgentName }
-    $SignalStopPrice = if ($Obj.signal -and $Obj.signal.PSObject.Properties["stop_price"])     { $Obj.signal.stop_price }     else { $null }
-    $SignalEdgePct   = if ($Obj.signal -and $Obj.signal.PSObject.Properties["edge_pct"])       { $Obj.signal.edge_pct }       else { 0.0 }
+    # Signal values are authoritative: sizing, conviction, side, prices all come from the agent.
+    # TC's bet_size/conviction/side are advisory only and are overridden here.
+    $SignalTicker         = if ($Obj.signal -and $Obj.signal.PSObject.Properties["ticker"])          { $Obj.signal.ticker }          else { "?" }
+    $SignalClass          = if ($Obj.signal -and $Obj.signal.PSObject.Properties["contract_class"])  { $Obj.signal.contract_class }  else { "SWING" }
+    $SignalAgentName      = if ($Obj.signal -and $Obj.signal.PSObject.Properties["agent_name"])      { $Obj.signal.agent_name }      else { $AgentName }
+    $SignalStopPrice      = if ($Obj.signal -and $Obj.signal.PSObject.Properties["stop_price"])      { $Obj.signal.stop_price }      else { $null }
+    $SignalEdgePct        = if ($Obj.signal -and $Obj.signal.PSObject.Properties["edge_pct"])        { $Obj.signal.edge_pct }        else { 0.0 }
+    $SignalConvictionTier = if ($Obj.signal -and $Obj.signal.PSObject.Properties["conviction_tier"]) { $Obj.signal.conviction_tier } else { "GLITCH" }
+    $SignalMaxSizeDollars = if ($Obj.signal -and $Obj.signal.PSObject.Properties["max_size_dollars"]) { [int]$Obj.signal.max_size_dollars } else { 25 }
+    $SignalSide           = if ($Obj.signal -and $Obj.signal.PSObject.Properties["side"])            { $Obj.signal.side }            else { "yes" }
+    $SignalEntryPrice     = if ($Obj.signal -and $Obj.signal.PSObject.Properties["entry_price"])     { $Obj.signal.entry_price }     else { $null }
+    $SignalTargetPrice    = if ($Obj.signal -and $Obj.signal.PSObject.Properties["target_price"])    { $Obj.signal.target_price }    else { $null }
     try {
         $DecisionParsed = $DecisionJson | ConvertFrom-Json -ErrorAction SilentlyContinue
         if ($DecisionParsed) {
-            $DecisionParsed | Add-Member -NotePropertyName "ticker"         -NotePropertyValue $SignalTicker    -Force
-            $DecisionParsed | Add-Member -NotePropertyName "contract_class" -NotePropertyValue $SignalClass     -Force
-            $DecisionParsed | Add-Member -NotePropertyName "agent_name"     -NotePropertyValue $SignalAgentName -Force
-            $DecisionParsed | Add-Member -NotePropertyName "edge_pct"       -NotePropertyValue $SignalEdgePct   -Force
-            if ($null -ne $SignalStopPrice) {
-                $DecisionParsed | Add-Member -NotePropertyName "stop_price" -NotePropertyValue $SignalStopPrice -Force
-            }
+            $DecisionParsed | Add-Member -NotePropertyName "ticker"          -NotePropertyValue $SignalTicker         -Force
+            $DecisionParsed | Add-Member -NotePropertyName "contract_class"  -NotePropertyValue $SignalClass          -Force
+            $DecisionParsed | Add-Member -NotePropertyName "agent_name"      -NotePropertyValue $SignalAgentName      -Force
+            $DecisionParsed | Add-Member -NotePropertyName "edge_pct"        -NotePropertyValue $SignalEdgePct        -Force
+            $DecisionParsed | Add-Member -NotePropertyName "conviction_tier" -NotePropertyValue $SignalConvictionTier -Force
+            $DecisionParsed | Add-Member -NotePropertyName "size"            -NotePropertyValue $SignalMaxSizeDollars -Force
+            $DecisionParsed | Add-Member -NotePropertyName "side"            -NotePropertyValue $SignalSide           -Force
+            if ($null -ne $SignalStopPrice)  { $DecisionParsed | Add-Member -NotePropertyName "stop_price"   -NotePropertyValue $SignalStopPrice   -Force }
+            if ($null -ne $SignalEntryPrice)  { $DecisionParsed | Add-Member -NotePropertyName "entry_price"  -NotePropertyValue $SignalEntryPrice  -Force }
+            if ($null -ne $SignalTargetPrice) { $DecisionParsed | Add-Member -NotePropertyName "target_price" -NotePropertyValue $SignalTargetPrice -Force }
             $DecisionJson = $DecisionParsed | ConvertTo-Json -Depth 10 -Compress
         }
     } catch { }
@@ -373,7 +465,7 @@ function Invoke-Postmortem {
     $LessonPath       = Join-Path $TriggersDir ($AgentName.ToLower() + "_lesson.json")
     $UpdateMemoryPath = Join-Path $IntelDir "update_memory.py"
     try {
-        Set-Content -Path $LessonPath -Value $LessonJson -Encoding UTF8
+        [System.IO.File]::WriteAllText($LessonPath, $LessonJson, (New-Object System.Text.UTF8Encoding $false))
         Write-Host ("[Syndicate Gate] Lesson written: " + ($AgentName.ToLower() + "_lesson.json"))
     } catch {
         Write-Warning ("[Syndicate Gate] Failed to write lesson file: $_")
@@ -382,10 +474,23 @@ function Invoke-Postmortem {
     }
 
     # update_memory.py reads the lesson, updates memory/{name}.json, deletes lesson file
+    $UpdRs = $null; $UpdPs = $null
     try {
-        & python $UpdateMemoryPath $LessonPath 2>&1 | Write-Host
+        $UpdRs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace(); $UpdRs.Open()
+        $UpdPs = [System.Management.Automation.PowerShell]::Create(); $UpdPs.Runspace = $UpdRs
+        [void]$UpdPs.AddScript("& python '$UpdateMemoryPath' '$LessonPath' 2>&1")
+        $UpdH = $UpdPs.BeginInvoke()
+        if ($UpdH.AsyncWaitHandle.WaitOne(60000)) {
+            $UpdPs.EndInvoke($UpdH) | ForEach-Object { Write-Host $_ }
+        } else {
+            Write-Warning ("[Syndicate Gate] update_memory.py timeout after 60s for " + $AgentName + " -- moving on")
+            $UpdPs.Stop()
+        }
     } catch {
         Write-Warning ("[Syndicate Gate] update_memory.py failed: $_")
+    } finally {
+        if ($UpdPs) { try { $UpdPs.Dispose() } catch {} }
+        if ($UpdRs) { try { $UpdRs.Close(); $UpdRs.Dispose() } catch {} }
     }
 
     Remove-Item $PostmortemPath -Force -ErrorAction SilentlyContinue
@@ -485,8 +590,18 @@ function Invoke-ExitReview {
 # ---------------------------------------------------------------------------
 # Main loop -- priority: panel > agent_signal > postmortem > exit_review
 # ---------------------------------------------------------------------------
+$script:_LastHbTime = $null   # gate heartbeat tracker
+
 while ($true) {
     Start-Sleep -Milliseconds 500
+
+    # ── Gate heartbeat (every 60s) — read by watchdog.py ─────────────────────
+    if (-not $script:_LastHbTime -or ([DateTime]::UtcNow - $script:_LastHbTime).TotalSeconds -ge 60) {
+        $script:_LastHbTime = [DateTime]::UtcNow
+        $HbPath = Join-Path $SyndicateRoot "logs\gate_heartbeat.json"
+        $HbJson = '{"ts":"' + $script:_LastHbTime.ToString("yyyy-MM-ddTHH:mm:ssZ") + '","pid":' + $PID + '}'
+        [System.IO.File]::WriteAllText($HbPath, $HbJson, (New-Object System.Text.UTF8Encoding $false))
+    }
 
     # ── Code path 1: Panel flow (pending_signal.json) ─────────────────────────
     if (Test-Path $PendingPath) {
@@ -535,18 +650,48 @@ while ($true) {
 
         $PanelSage = "SAGE: Unavailable."
         $PanelEcho = "ECHO: Unavailable."
-        try {
-            $SagePy = Join-Path $SyndicateRoot "tools\get_sage_briefing.py"
-            if (Test-Path $SagePy) {
-                $PanelSage = (& python $SagePy --ticker $Ticker --yes_price $PanelYesPrice --class_ $PanelClass 2>$null) -join ""
+        $SagePy2 = Join-Path $SyndicateRoot "tools\get_sage_briefing.py"
+        $EchoPy2 = Join-Path $SyndicateRoot "tools\get_echo_warning.py"
+        if (Test-Path $SagePy2) {
+            $PSageRs = $null; $PSagePs = $null
+            try {
+                $PSageRs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace(); $PSageRs.Open()
+                $PSagePs = [System.Management.Automation.PowerShell]::Create(); $PSagePs.Runspace = $PSageRs
+                [void]$PSagePs.AddScript("& python '$SagePy2' --ticker '$Ticker' --yes_price $PanelYesPrice --class_ '$PanelClass' 2>`$null")
+                $PSageH = $PSagePs.BeginInvoke()
+                if ($PSageH.AsyncWaitHandle.WaitOne(60000)) {
+                    $PanelSage = ($PSagePs.EndInvoke($PSageH) -join "").Trim()
+                    if (-not $PanelSage) { $PanelSage = "SAGE: Unavailable." }
+                } else {
+                    Write-Warning "[Syndicate Gate] Panel SAGE timeout after 60s -- skipping"
+                    $PSagePs.Stop()
+                }
+            } catch { Write-Warning "[Syndicate Gate] Panel SAGE failed: $_" }
+            finally {
+                if ($PSagePs) { try { $PSagePs.Dispose() } catch {} }
+                if ($PSageRs) { try { $PSageRs.Close(); $PSageRs.Dispose() } catch {} }
             }
-        } catch { }
-        try {
-            $EchoPy = Join-Path $SyndicateRoot "tools\get_echo_warning.py"
-            if (Test-Path $EchoPy) {
-                $PanelEcho = (& python $EchoPy --ticker $Ticker --agent $PanelAgent --yes_price $PanelYesPrice 2>$null) -join ""
+        }
+        if (Test-Path $EchoPy2) {
+            $PEchoRs = $null; $PEchoPs = $null
+            try {
+                $PEchoRs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace(); $PEchoRs.Open()
+                $PEchoPs = [System.Management.Automation.PowerShell]::Create(); $PEchoPs.Runspace = $PEchoRs
+                [void]$PEchoPs.AddScript("& python '$EchoPy2' --ticker '$Ticker' --agent '$PanelAgent' --yes_price $PanelYesPrice 2>`$null")
+                $PEchoH = $PEchoPs.BeginInvoke()
+                if ($PEchoH.AsyncWaitHandle.WaitOne(60000)) {
+                    $PanelEcho = ($PEchoPs.EndInvoke($PEchoH) -join "").Trim()
+                    if (-not $PanelEcho) { $PanelEcho = "ECHO: Unavailable." }
+                } else {
+                    Write-Warning "[Syndicate Gate] Panel ECHO timeout after 60s -- skipping"
+                    $PEchoPs.Stop()
+                }
+            } catch { Write-Warning "[Syndicate Gate] Panel ECHO failed: $_" }
+            finally {
+                if ($PEchoPs) { try { $PEchoPs.Dispose() } catch {} }
+                if ($PEchoRs) { try { $PEchoRs.Close(); $PEchoRs.Dispose() } catch {} }
             }
-        } catch { }
+        }
 
         $PanelFull = $PanelPrompt
         $PanelFull = $PanelFull.Replace("{ECHO_WARNING}", $PanelEcho)
