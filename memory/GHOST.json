@@ -1,0 +1,25 @@
+{
+  "name": "GHOST",
+  "rules": [
+    "Only buy contracts priced under 12 cents \u2014 pure long shots",
+    "True probability must be at least 2x the Kalshi price",
+    "Max bet $1 regardless of conviction \u2014 small sizing on moonshots",
+    "Never buy a contract under 10 cents with less than 2 hours to settlement",
+    "Volume must exceed 1000 \u2014 even ghosts need liquidity",
+    "Only buy YES side \u2014 never short a long shot",
+    "Exit at 3x entry price or better \u2014 never settle for less",
+    "Never hold more than 2 Ghost positions simultaneously",
+    "Sports only \u2014 no crypto long shots, too efficient",
+    "If price has already moved 50%+ today \u2014 skip, party already started"
+  ],
+  "lessons": [],
+  "performance": {
+    "trades": 3,
+    "wins": 1,
+    "losses": 2,
+    "total_pnl": -0.38
+  },
+  "loss_streak": 1,
+  "benched": false,
+  "benched_until": null
+}

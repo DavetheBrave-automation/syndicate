@@ -108,7 +108,10 @@ def _build_subscribe_msg(msg_id: int, tickers: list) -> str:
 def _parse_ticker_msg(msg: dict) -> tuple:
     """
     Parse a Kalshi 'ticker' WebSocket message.
-    Returns (ticker, yes_price_float, no_bid_float, volume_dollars_float) or None.
+    Returns (ticker, yes_price, no_bid, volume_dollars, yes_bid_cents, yes_ask_cents,
+             last_price_cents) or None on parse failure.
+
+    yes_bid_cents, yes_ask_cents, last_price_cents: int or None (None if absent in msg).
 
     Kalshi ticker fields (WS v2):
       yes_bid, yes_ask, no_bid, no_ask — cents integers (1-99)
@@ -123,29 +126,45 @@ def _parse_ticker_msg(msg: dict) -> tuple:
     if not ticker:
         return None
 
-    # yes_price_dollars is the clean mid-market price
+    # ── Extract bid/ask/last always — present on most ticks ──────────────────
+    yes_bid_cents = None
+    yes_ask_cents = None
+    last_price_cents = None
+
+    _yb = msg_data.get("yes_bid")
+    if _yb is not None:
+        try:
+            yes_bid_cents = int(float(_yb))
+        except (ValueError, TypeError):
+            pass
+
+    _ya = msg_data.get("yes_ask")
+    if _ya is not None:
+        try:
+            yes_ask_cents = int(float(_ya))
+        except (ValueError, TypeError):
+            pass
+
+    _lp = msg_data.get("last_price") or msg_data.get("last_yes_price")
+    if _lp is not None:
+        try:
+            last_price_cents = int(float(_lp))
+        except (ValueError, TypeError):
+            pass
+
+    # ── Derive yes_price with fallback chain ──────────────────────────────────
     yes_price_raw = msg_data.get("yes_price_dollars")
     if yes_price_raw is not None:
         try:
             yes_price = float(yes_price_raw)
         except (ValueError, TypeError):
             yes_price = 0.0
+    elif last_price_cents is not None:
+        yes_price = last_price_cents / 100.0
+    elif yes_bid_cents and yes_ask_cents:
+        yes_price = (yes_bid_cents + yes_ask_cents) / 2 / 100.0
     else:
-        # Fallback 1: last_price (cents int)
-        last_price_raw = msg_data.get("last_price") or msg_data.get("last_yes_price")
-        if last_price_raw is not None:
-            try:
-                yes_price = float(last_price_raw) / 100.0
-            except (ValueError, TypeError):
-                yes_price = 0.0
-        else:
-            # Fallback 2: bid/ask mid
-            yes_bid = float(msg_data.get("yes_bid", 0) or 0)
-            yes_ask = float(msg_data.get("yes_ask", 0) or 0)
-            if yes_bid > 0 and yes_ask > 0:
-                yes_price = ((yes_bid + yes_ask) / 2) / 100.0
-            else:
-                yes_price = 0.0
+        yes_price = 0.0
 
     no_bid_raw = msg_data.get("no_bid", 0)
     try:
@@ -167,7 +186,7 @@ def _parse_ticker_msg(msg: dict) -> tuple:
     if yes_price <= 0:
         return None
 
-    return ticker, yes_price, no_bid, volume_dollars
+    return ticker, yes_price, no_bid, volume_dollars, yes_bid_cents, yes_ask_cents, last_price_cents
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +222,9 @@ class KalshiWS:
         self._msg_id   = 1
         self._running  = False
         self._thread   = None
+
+        # Step A validation: log first N bid/ask pairs to confirm extraction working
+        self._bid_ask_log_count = 0
 
     # -------------------------------------------------------------------------
     # WebSocket callbacks
@@ -247,12 +269,25 @@ class KalshiWS:
         if msg_type == "ticker":
             parsed = _parse_ticker_msg(msg)
             if parsed:
-                ticker, yes_price, no_bid, volume_dollars = parsed
+                ticker, yes_price, no_bid, volume_dollars, yes_bid_cents, yes_ask_cents, last_price_cents = parsed
                 ts = time.time()
                 # update_market_price preserves spread/days_to_settlement/class/series
                 # set by the scan engine heartbeat; safe to call from this thread.
                 state.update_market_price(ticker, yes_price, no_bid, volume_dollars, ts)
                 state.set_velocity(ticker, 0.0, self.velocity_window)
+
+                # Store bid/ask/last and refresh spread from live book data
+                if yes_bid_cents is not None or yes_ask_cents is not None:
+                    state.update_market_bid_ask(ticker, yes_bid_cents, yes_ask_cents, last_price_cents)
+                    # Step A validation: log first 10 pairs to confirm extraction working
+                    if yes_bid_cents and yes_ask_cents and self._bid_ask_log_count < 10:
+                        self._bid_ask_log_count += 1
+                        logger.info(
+                            "[KalshiWS] BidAsk #%d: %s bid=%d¢ ask=%d¢ spread=%d¢",
+                            self._bid_ask_log_count, ticker,
+                            yes_bid_cents, yes_ask_cents,
+                            yes_ask_cents - yes_bid_cents,
+                        )
 
                 # Dispatch to registered consumers (scalper + scan engine)
                 if self._on_tick_callback is not None:

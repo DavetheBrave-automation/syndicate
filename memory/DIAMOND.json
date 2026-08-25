@@ -1,0 +1,23 @@
+{
+  "name": "DIAMOND",
+  "rules": [
+    "Only trade BTC and ETH Kalshi price-level markets (KXBTCD/W, KXETHD/W)",
+    "Only buy when log-normal edge exceeds 10% versus Kalshi implied price",
+    "Volume must exceed 20000 \u2014 crypto markets can be thinly traded",
+    "Never enter within 1 hour of settlement \u2014 price is near true value already",
+    "If spot fetch fails, PASS \u2014 never trade blind without a fair-value model",
+    "Require minimum 100 contracts per entry to reduce fee drag below 30% of gross."
+  ],
+  "lessons": [
+    "The NO position on KXETHD hit +34% target in under 10 minutes \u0393\u00c7\u00f6 a clean, fast win \u0393\u00c7\u00f6 but fees consumed 47.8% of gross profit ($4.10 of $8.58), severely compressing the net."
+  ],
+  "performance": {
+    "trades": 3,
+    "wins": 1,
+    "losses": 2,
+    "total_pnl": -10.4186
+  },
+  "loss_streak": 0,
+  "benched": false,
+  "benched_until": null
+}

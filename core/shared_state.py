@@ -20,13 +20,16 @@ class MarketData:
     yes_price: float            # 0.0–1.0 (e.g. 0.62)
     no_bid: float
     volume_dollars: float
-    spread: float               # bid-ask spread (float)
+    spread: float               # bid-ask spread in dollars; updated from WS ticks
     days_to_settlement: float   # calendar days until resolution
     contract_class: str         # SCALP / SWING / POSITION / WATCH
     series_ticker: str          # parent series (e.g. "KXBTC")
     last_update: float          # time.time()
     price_history: list = field(default_factory=list)  # list of (ts, yes_price)
     velocity: float = 0.0       # price change per minute over last velocity_window
+    yes_bid: Optional[int] = None    # cents integer (1–99); None until first WS tick
+    yes_ask: Optional[int] = None    # cents integer (1–99); None until first WS tick
+    last_price: Optional[int] = None # last traded price in cents; None until first tick
 
 
 @dataclass
@@ -167,6 +170,26 @@ class SharedState:
             m.no_bid = no_bid
             m.volume_dollars = volume_dollars
             m.last_update = ts
+
+    def update_market_bid_ask(self, ticker: str, yes_bid: Optional[int],
+                              yes_ask: Optional[int], last_price: Optional[int]) -> None:
+        """
+        Update bid/ask/last_price fields from WS tick.
+        Also refreshes spread if both sides are present.
+        Does not touch yes_price, metadata, or price_history.
+        """
+        with self._lock:
+            if ticker not in self.markets:
+                return
+            m = self.markets[ticker]
+            if yes_bid is not None:
+                m.yes_bid = yes_bid
+            if yes_ask is not None:
+                m.yes_ask = yes_ask
+            if last_price is not None:
+                m.last_price = last_price
+            if m.yes_bid and m.yes_ask:
+                m.spread = (m.yes_ask - m.yes_bid) / 100.0
 
     def get_market(self, ticker: str) -> Optional[MarketData]:
         with self._lock:

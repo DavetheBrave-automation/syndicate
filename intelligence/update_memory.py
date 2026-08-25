@@ -128,7 +128,7 @@ def update_memory(lesson_path: str) -> None:
     Raises on any unrecoverable error (caller exits 1).
     """
     # ── 1. Read and validate lesson file ────────────────────────────────────
-    with open(lesson_path, "r", encoding="utf-8") as f:
+    with open(lesson_path, "r", encoding="utf-8-sig") as f:
         lesson = json.load(f)
 
     if not isinstance(lesson, dict):

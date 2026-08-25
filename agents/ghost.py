@@ -122,7 +122,4 @@ class GhostAgent(BaseAgent):
             game=game,
         )
 
-        # Force max_size to $1 — ghost bets are always $1
-        signal["signal"]["max_size_dollars"] = 1
-
         self.submit_signal(signal)

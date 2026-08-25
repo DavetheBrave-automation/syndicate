@@ -42,6 +42,52 @@ def post(message: str, emoji: str = "🎯") -> None:
         logger.debug("[Telegram] post failed: %s", e)
 
 
+def post_trade_entry(trade_data: dict) -> None:
+    """Post a rich entry alert built by alert_builder. Never raises."""
+    if not BOT_TOKEN or not CHAT_ID:
+        return
+    try:
+        from notifications.alert_builder import build_entry_alert  # noqa: PLC0415
+        text = build_entry_alert(trade_data)
+        payload = json.dumps({
+            "chat_id":    CHAT_ID,
+            "text":       text,
+            "parse_mode": "HTML",
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            _URL,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as e:
+        logger.debug("[Telegram] post_trade_entry failed: %s", e)
+
+
+def post_trade_exit(trade_data: dict) -> None:
+    """Post a rich exit alert built by alert_builder. Never raises."""
+    if not BOT_TOKEN or not CHAT_ID:
+        return
+    try:
+        from notifications.alert_builder import build_exit_alert  # noqa: PLC0415
+        text = build_exit_alert(trade_data)
+        payload = json.dumps({
+            "chat_id":    CHAT_ID,
+            "text":       text,
+            "parse_mode": "HTML",
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            _URL,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as e:
+        logger.debug("[Telegram] post_trade_exit failed: %s", e)
+
+
 # ---------------------------------------------------------------------------
 # Heartbeat gate — 4x/day only (6AM, 10AM, 2PM, 6PM CT)
 # ---------------------------------------------------------------------------

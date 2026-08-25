@@ -1,0 +1,10 @@
+.env
+*.pyc
+__pycache__/
+data/*.db
+data/*.db-journal
+kalshi_private_key.pem
+*.log
+.venv/
+venv/
+.DS_Store

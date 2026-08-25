@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>NFE War Room</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="60">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#080808;color:#e0e0e0;font-family:monospace;padding:10px;font-size:12px}
+h1{color:#00ff88;font-size:15px;margin-bottom:8px}
+h2{color:#555;font-size:10px;margin:14px 0 6px;text-transform:uppercase;letter-spacing:2px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;margin-bottom:12px}
+.card{background:#141414;border:1px solid #2a2a2a;border-radius:5px;padding:8px}
+.card .lbl{font-size:9px;color:#555;margin-bottom:3px}
+.card .val{font-size:18px;font-weight:bold;color:#00ff88}
+.card .val.y{color:#ffaa00}.card .val.r{color:#ff4444}
+table{width:100%;border-collapse:collapse;font-size:11px}
+th{background:#141414;color:#555;padding:5px 6px;text-align:left;border-bottom:1px solid #222}
+td{padding:4px 6px;border-bottom:1px solid #141414;vertical-align:top}
+tr:hover td{background:#141414}
+.g{color:#00ff88}.r{color:#ff4444}.y{color:#ffaa00}.b{color:#4499ff}.p{color:#cc88ff}
+.sec{background:#0e0e0e;border:1px solid #1a1a1a;border-radius:5px;padding:10px;margin-bottom:10px;overflow-x:auto}
+.ts{color:#444;font-size:9px}
+.score{display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:bold}
+.s-high{background:#003322;color:#00ff88}.s-med{background:#332200;color:#ffaa00}.s-low{background:#1a1a1a;color:#666}
+.info-btn{background:none;border:1px solid #333;color:#4499ff;cursor:pointer;border-radius:50%;width:16px;height:16px;font-size:9px;line-height:14px;text-align:center;display:inline-block}
+.info-panel{display:none;background:#0a0a0a;border:1px solid #2a2a2a;border-radius:5px;padding:10px;margin-top:4px;font-size:10px;color:#aaa}
+.info-panel.show{display:block}
+.verdict{font-weight:bold;font-size:11px;margin-bottom:6px}
+.bk{background:#141414;padding:3px 6px;border-radius:3px;font-size:9px;border:1px solid #222;display:inline-block;margin:2px}
+.bk-hi{background:#003322;border-color:#005533;color:#00ff88}
+.bk-lo{background:#330000;border-color:#550000;color:#ff4444}
+.cat-oil{color:#ff8844}.cat-natgas{color:#ff6622}.cat-btc{color:#f7931a}.cat-eth{color:#627eea}
+.cat-sports{color:#44ff88}.cat-forex{color:#4499ff}.cat-rates{color:#cc88ff}.cat-gold{color:#ffd700}
+.cat-stocks{color:#00ccff}.cat-politics{color:#ff4444}
+.expiry-rules{background:#110000;border:1px solid #330000;border-radius:4px;padding:6px;margin-top:6px}
+.risk{color:#ffaa00;margin:2px 0;font-size:10px}
+.logic-row{display:flex;gap:6px;align-items:flex-start;margin:2px 0}
+.logic-label{color:#555;min-width:90px;font-size:9px;flex-shrink:0}
+.logic-val{color:#aaa;font-size:9px}
+.mode-paper{background:#001a33;color:#4499ff;padding:2px 6px;border-radius:3px;font-size:9px;border:1px solid #003366}
+.mode-live{background:#330000;color:#ff4444;padding:2px 6px;border-radius:3px;font-size:9px;border:1px solid #660000}
+</style>
+<script>
+function toggleInfo(id){var p=document.getElementById('info-'+id);if(p)p.classList.toggle('show');}
+</script>
+</head>
+<body>
+<h1>🎯 NFE WAR ROOM <span class="{{ 'mode-live' if mode == 'LIVE' else 'mode-paper' }}">{{ mode }}</span>{% if mode == 'PAPER' %} <span class="mode-paper">[PAPER — NO REAL MONEY]</span>{% endif %}</h1>
+<p class="ts">Last scan: {{ last_scan }} | Scan #{{ scan_count }} | Auto-refresh 60s | P&L: ${{ "%.2f"|format(session_pnl) }} | Exposure cap: {{ exposure_cap_pct }}% | Sports cap: {{ sports_cap_pct }}% | Kalshi: {{ kalshi_status }}</p>
+<p class="ts" style="color:#ff8844;margin-top:2px">🛢️ OIL PRIORITY — threshold {{ score_threshold }} (oil effective {{ score_threshold - oil_boost }}) | Half-Kelly sizing | Allowlist active</p>
+
+<div class="grid" style="margin-top:10px">
+  <div class="card"><div class="lbl">Cash</div><div class="val">${{ "%.2f"|format(cash) }}</div></div>
+  <div class="card"><div class="lbl">Portfolio</div><div class="val">${{ "%.2f"|format(portfolio_value) }}</div></div>
+  <div class="card"><div class="lbl">Positions</div><div class="val {{ 'y' if positions|length > 0 else '' }}">{{ positions|length }}</div></div>
+  <div class="card"><div class="lbl">Orders</div><div class="val">{{ orders|length }}</div></div>
+  <div class="card"><div class="lbl">Session P&L</div><div class="val {{ 'g' if session_pnl >= 0 else 'r' }}">${{ "%.2f"|format(session_pnl) }}</div></div>
+  <div class="card"><div class="lbl">Markets</div><div class="val">{{ market_count }}</div></div>
+  <div class="card"><div class="lbl">Exposure</div><div class="val">${{ "%.2f"|format(exposure) }}</div></div>
+  <div class="card"><div class="lbl">Opps</div><div class="val {{ 'y' if opportunities|length > 0 else '' }}">{{ opportunities|length }}</div></div>
+</div>
+
+<div class="sec">
+  <h2>🔥 Top Opportunities — Kelly-Sized Edge Engine <button class="info-btn" onclick="toggleInfo('scoring-guide')" style="margin-left:6px">ⓘ</button></h2>
+  <div id="info-scoring-guide" class="info-panel" style="margin-bottom:10px">
+    <div class="verdict">Scoring + Sizing — How It Works</div>
+    <div class="logic-row"><div class="logic-label">Score formula</div><div class="logic-val">Total = price_edge + volume + macro + time_decay + congress + reserve. Per-asset-class weights, sums to 100. Oil/gold/natgas get +5 boost.</div></div>
+    <div class="logic-row"><div class="logic-label">Threshold</div><div class="logic-val">Score ≥ {{ score_threshold }} triggers entry. Oil effective threshold = {{ score_threshold - oil_boost }}.</div></div>
+    <div class="logic-row"><div class="logic-label">Probability</div><div class="logic-val">Score → prob: 60→38%, 70→44%, 80→56%, 90→74%.</div></div>
+    <div class="logic-row"><div class="logic-label">Sizing</div><div class="logic-val">Half-Kelly: f* = (p×100 - c) / (100 - c), then halved. Capped at 100 contracts and ${{ "%.0f"|format(200) }}/trade.</div></div>
+    <div class="logic-row"><div class="logic-label">Allowlist</div><div class="logic-val">KXMVE*, KXCROSS*, parlays permanently blocked — no valid signal model.</div></div>
+    <div class="expiry-rules">
+      <div class="risk">T-6h: profitable → limit sell at bid-2¢</div>
+      <div class="risk">T-3h: at loss/break-even → market sell now</div>
+      <div class="risk">T-1h: emergency market sell regardless</div>
+    </div>
+  </div>
+
+  {% if opportunities %}
+  <table>
+    <tr><th>ⓘ</th><th>Ticker</th><th>Class</th><th>Score</th><th>Edge%</th><th>Conviction</th><th>Side</th><th>Bid/Ask</th><th>Vol</th><th>Hrs</th><th>Breakdown</th></tr>
+    {% for opp in opportunities[:10] %}
+    <tr>
+      <td><button class="info-btn" onclick="toggleInfo('opp-{{ loop.index }}')">ⓘ</button></td>
+      <td class="cat-{{ opp.asset_class }}">{{ opp.ticker }}</td>
+      <td class="cat-{{ opp.asset_class }}">{{ opp.asset_class }}</td>
+      <td><span class="score {{ 's-high' if opp.score >= 75 else 's-med' if opp.score >= 60 else 's-low' }}">{{ "%.0f"|format(opp.score) }}</span></td>
+      <td class="g">{{ "%.1f"|format(opp.edge_pct or 0) }}%</td>
+      <td class="{{ 'p' if opp.conviction == 'PROPHECY' else 'g' if opp.conviction == 'HIGH_CONVICTION' else 'y' }}">{{ opp.conviction or '—' }}</td>
+      <td class="{{ 'g' if opp.side == 'yes' else 'r' }}">{{ (opp.side or '—')|upper }}</td>
+      <td>{{ opp.yes_bid }}¢/{{ opp.yes_ask }}¢</td>
+      <td>{{ opp.volume }}</td>
+      <td>{{ "%.0f"|format(opp.hours_to_expiry or 0) }}h</td>
+      <td>
+        {% for k, v in opp.breakdown.items() %}<span class="bk {{ 'bk-hi' if v >= 10 else 'bk-lo' if v <= 2 else '' }}">{{ k }}:{{ v }}</span>{% endfor %}
+      </td>
+    </tr>
+    <tr><td colspan="11" style="padding:0 6px 8px">
+      <div id="info-opp-{{ loop.index }}" class="info-panel">
+        <div class="verdict">{{ opp.ticker }} — Syndicate Edge Detail</div>
+        <div class="logic-row"><div class="logic-label">Asset class</div><div class="logic-val cat-{{ opp.asset_class }}">{{ opp.asset_class }}</div></div>
+        <div class="logic-row"><div class="logic-label">Total score</div><div class="logic-val g">{{ "%.1f"|format(opp.score) }} (threshold {{ score_threshold }})</div></div>
+        <div class="logic-row"><div class="logic-label">Edge</div><div class="logic-val g">{{ "%.1f"|format(opp.edge_pct or 0) }}% — raw Syndicate edge</div></div>
+        <div class="logic-row"><div class="logic-label">Conviction</div><div class="logic-val {{ 'p' if opp.conviction == 'PROPHECY' else 'g' if opp.conviction == 'HIGH_CONVICTION' else 'y' }}">{{ opp.conviction or '—' }}</div></div>
+        <div class="logic-row"><div class="logic-label">Trade side</div><div class="logic-val {{ 'g' if opp.side == 'yes' else 'r' }}">BUY {{ (opp.side or '—')|upper }}</div></div>
+        <div class="logic-row"><div class="logic-label">Quote</div><div class="logic-val">YES bid {{ opp.yes_bid }}¢ / ask {{ opp.yes_ask }}¢</div></div>
+        <div class="logic-row"><div class="logic-label">Volume 24h</div><div class="logic-val">{{ opp.volume }} contracts</div></div>
+        <div class="logic-row"><div class="logic-label">Time to expiry</div><div class="logic-val {{ 'r' if opp.hours_to_expiry and opp.hours_to_expiry < 6 else '' }}">{{ "%.1f"|format(opp.hours_to_expiry or 0) }}h</div></div>
+        <div class="logic-row"><div class="logic-label">Factor breakdown</div><div class="logic-val">{% for k, v in opp.breakdown.items() %}<span class="bk">{{ k }}:{{ v }}</span> {% endfor %}</div></div>
+      </div>
+    </td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p style="color:#333;padding:8px">No opportunities above threshold right now.</p>
+  {% endif %}
+</div>
+
+<div class="sec">
+  <h2>📊 Open Positions</h2>
+  {% if positions %}
+  <table>
+    <tr><th>ⓘ</th><th>Ticker</th><th>Class</th><th>Qty</th><th>Entry</th><th>Target</th><th>Stop</th><th>Exposure</th></tr>
+    {% for pos in positions %}
+    <tr>
+      <td><button class="info-btn" onclick="toggleInfo('pos-{{ loop.index }}')">ⓘ</button></td>
+      <td class="cat-{{ pos.asset_class or 'other' }}">{{ pos.ticker }}</td>
+      <td class="cat-{{ pos.asset_class or 'other' }}">{{ pos.asset_class or '—' }}</td>
+      <td>{{ pos.qty }}</td>
+      <td class="y">{{ "%.1f"|format(pos.entry_cents) }}¢</td>
+      <td class="g">{{ "%.0f"|format(pos.target_cents) }}¢</td>
+      <td class="r">{{ "%.0f"|format(pos.stop_cents) }}¢</td>
+      <td>${{ "%.2f"|format(pos.cost_basis_dollars) }}</td>
+    </tr>
+    <tr><td colspan="8" style="padding:0 6px 8px">
+      <div id="info-pos-{{ loop.index }}" class="info-panel">
+        <div class="verdict g">Position Rules</div>
+        <div class="logic-row"><div class="logic-label">Entry</div><div class="logic-val">{{ "%.1f"|format(pos.entry_cents) }}¢ (cost basis ÷ contracts)</div></div>
+        <div class="logic-row"><div class="logic-label">Profit target</div><div class="logic-val g">{{ "%.0f"|format(pos.target_cents) }}¢ — auto-sells at 2× entry</div></div>
+        <div class="logic-row"><div class="logic-label">Stop loss</div><div class="logic-val r">{{ "%.0f"|format(pos.stop_cents) }}¢ — 40% of entry</div></div>
+        <div class="expiry-rules">
+          <div class="risk">T-6h: profitable → limit sell at bid-2¢</div>
+          <div class="risk">T-3h: at loss/flat → market sell</div>
+          <div class="risk">T-1h: emergency market sell regardless</div>
+        </div>
+      </div>
+    </td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p style="color:#333;padding:8px">No open positions.</p>
+  {% endif %}
+</div>
+
+<div class="sec">
+  <h2>⏳ Resting Orders</h2>
+  {% if orders %}
+  <table>
+    <tr><th>Ticker</th><th>Side</th><th>Action</th><th>Qty</th><th>Limit</th><th>Status</th></tr>
+    {% for o in orders %}
+    <tr><td>{{ o.ticker }}</td><td>{{ o.side }}</td><td>{{ o.action }}</td><td>{{ o.qty }}</td><td>{{ o.limit_cents }}¢</td><td>{{ o.status }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p style="color:#333;padding:8px">No resting orders.</p>
+  {% endif %}
+</div>
+
+<div class="sec">
+  <h2>🌍 Live Macro Environment</h2>
+  <table>
+    <tr><th>Signal</th><th>Status</th><th>Source</th><th>Score Impact</th></tr>
+    {% for row in macro_rows %}
+    <tr>
+      <td>{{ row.signal }}</td>
+      <td class="{{ row.color }}">{{ row.status }}</td>
+      <td class="ts">{{ row.source }}</td>
+      <td>{{ row.impact }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+
+<div class="sec">
+  <h2>📝 Trade Log</h2>
+  {% for entry in trade_log %}
+  <div style="border-bottom:1px solid #141414;padding:5px 0">
+    <span class="ts">{{ entry.ts_str }}</span>
+    <span style="margin-left:8px;color:#ccc">{{ entry.kind }} — {{ entry.title }}</span>
+    {% if entry.body %}<div style="color:#555;font-size:10px;margin-top:2px;white-space:pre-wrap">{{ entry.body }}</div>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+</body>
+</html>

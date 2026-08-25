@@ -267,6 +267,18 @@ class ScanEngine:
                 SageAgent(), EchoAgent(),
                 OilAgent(),
             ]
+            # ── Active agents bench filter ─────────────────────────────────────
+            # Reads active_agents list from syndicate_config.yaml.
+            # If key absent → all 16 active (no change). If present → only listed
+            # agents receive evaluate() calls. Reversible: add/remove names + restart.
+            _bench_cfg = _load_config()
+            _active_agents = _bench_cfg.get("active_agents", None)
+            if _active_agents is not None:
+                _before_names = [a.name for a in self._agents]
+                self._agents = [a for a in self._agents if a.name in _active_agents]
+                _benched = [n for n in _before_names if n not in _active_agents]
+                if _benched:
+                    logger.info("[ScanEngine] Bench active — benched: %s", _benched)
             logger.info(
                 "[ScanEngine] Agents loaded: %s",
                 [a.name for a in self._agents],

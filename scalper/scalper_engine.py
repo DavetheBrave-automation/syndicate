@@ -133,6 +133,10 @@ class ScalperEngine:
         # Agent registry: agent_name → agent instance (populated via register_agents)
         self._agent_registry: dict = {}
 
+        # TC exit review hysteresis — prevents re-review within 60s or on <2¢ move
+        self._tc_exit_cooldown:   dict[str, float] = {}  # ticker → last review timestamp
+        self._tc_exit_last_price: dict[str, float] = {}  # ticker → yes_price at last review
+
         logger.info(
             "[ScalperEngine] Initialized. max_hold_minutes=%d",
             self._max_hold_minutes,
@@ -262,6 +266,7 @@ class ScalperEngine:
             ticker=ticker,
             contract_class=rule.get("class", "SCALP"),
             proposed_dollars=proposed_dollars,
+            agent_name=rule.get("agent_name", ""),
         )
         if not allowed:
             logger.debug(
@@ -422,6 +427,14 @@ class ScalperEngine:
         except Exception:
             return None
 
+    def record_tc_exit_review(self, ticker: str, yes_price: float) -> None:
+        """
+        Called by main.py after processing a {name}_exit_decision.json.
+        Starts the 60s cooldown and records price for the 2¢ gate.
+        """
+        self._tc_exit_cooldown[ticker]   = time.time()
+        self._tc_exit_last_price[ticker] = yes_price
+
     def _write_exit_trigger(self, agent, position, market, game=None) -> None:
         """
         Write triggers/{agent_name}_exit.json.
@@ -483,6 +496,18 @@ class ScalperEngine:
             )
             if os.path.exists(pending_exit):
                 continue
+
+            # Hysteresis gate 1: 60s cooldown after any TC exit review
+            _now = time.time()
+            if _now - self._tc_exit_cooldown.get(ticker, 0.0) < 60.0:
+                continue
+
+            # Hysteresis gate 2: skip if price hasn't moved ≥2¢ since last review
+            _reviewed_price = self._tc_exit_last_price.get(ticker)
+            if _reviewed_price is not None:
+                _mkt = state.get_market(ticker)
+                if _mkt is not None and abs(_mkt.yes_price - _reviewed_price) < 0.02:
+                    continue
 
             market = state.get_market(ticker)
             game   = self._get_game_for_ticker(ticker)
@@ -676,8 +701,7 @@ class ScalperEngine:
         OFF the on_price_update hot path.
         """
         cfg = _scalper_cfg()
-        max_hold_minutes = int(cfg.get("max_hold_minutes", _DEFAULT_MAX_HOLD))
-        max_hold_seconds = max_hold_minutes * 60
+        config_max_hold_minutes = int(cfg.get("max_hold_minutes", _DEFAULT_MAX_HOLD))
         now = time.time()
 
         # get_positions_by_class acquires the lock once and returns a snapshot.
@@ -687,6 +711,12 @@ class ScalperEngine:
             # Hold-to-resolution positions are managed by price thresholds, not time.
             if getattr(position, "hold_to_settlement", False):
                 continue
+
+            # Respect per-position max_hold_minutes (e.g. DELTA=240) over global config.
+            # Falls back to config value when position field is absent or zero.
+            pos_max = getattr(position, "max_hold_minutes", None)
+            max_hold_minutes = pos_max if (pos_max is not None and pos_max > 0) else config_max_hold_minutes
+            max_hold_seconds = max_hold_minutes * 60
 
             hold_seconds = now - position.entry_time
             if hold_seconds >= max_hold_seconds:

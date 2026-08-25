@@ -1,8 +1,1 @@
-{
-  "CIPHER:KXBTCD:40-60": {
-    "blocked_until": "2026-04-18T22:34:00Z",
-    "reason": "F grade: pnl=$-48.38 on CIPHER KXBTCD 40-60 \u2014 manually written post-trade #108 (gap-down stop loss at 165 contracts unvalidated scale)",
-    "source_trade_id": 108,
-    "created_at": "2026-04-18T18:29:28Z"
-  }
-}
+﻿{"CIPHER:KXBTCD:40-60":{"blocked_until":"2026-04-18T22:34:00Z","reason":"F grade: pnl=$-48.38 on CIPHER KXBTCD 40-60 — manually written post-trade #108 (gap-down stop loss at 165 contracts unvalidated scale)","source_trade_id":108,"created_at":"2026-04-18T18:29:28Z"},"DELTA:KXBTCD:40-60":{"blocked_until":"2026-04-19T19:18:46Z","reason":"F grade: pnl=$-9.65 on DELTA KXBTCD 40-60","source_trade_id":0,"created_at":"2026-04-18T19:18:46Z"}}

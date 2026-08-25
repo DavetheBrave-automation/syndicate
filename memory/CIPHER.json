@@ -1,12 +1,16 @@
 {
   "name": "CIPHER",
-  "rules": [],
-  "lessons": [],
+  "rules": [
+    "Require projected gross PnL at least 3x estimated fees before entry."
+  ],
+  "lessons": [
+    "The trade hit +24% target in under 5 minutes \u0393\u00c7\u00f6 a clean, fast scalp. However, fees consumed 32% of gross PnL ($0.42 of $1.31), indicating short-hold trades on small size bleed heavily to transaction costs."
+  ],
   "performance": {
-    "trades": 0,
-    "wins": 0,
-    "losses": 0,
-    "total_pnl": 0.0
+    "trades": 28,
+    "wins": 20,
+    "losses": 8,
+    "total_pnl": -39.4092
   },
   "loss_streak": 0,
   "benched": false,

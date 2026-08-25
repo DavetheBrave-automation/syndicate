@@ -1,0 +1,22 @@
+{
+  "name": "SHADOW",
+  "rules": [
+    "Copy the strategy of the agent with highest win rate in last 20 trades",
+    "If no agent has 5+ trades, copy AXIOM as default",
+    "Never override an agent that is currently in a position",
+    "Reduce conviction by 1 level \u2014 shadow never leads, only follows",
+    "If top agent is GHOST, max bet stays at $1",
+    "Re-evaluate which agent to shadow every 10 trades",
+    "If top agent loses 3 in a row, switch to second-best immediately"
+  ],
+  "lessons": [],
+  "performance": {
+    "trades": 2,
+    "wins": 2,
+    "losses": 0,
+    "total_pnl": 4.48
+  },
+  "loss_streak": 0,
+  "benched": false,
+  "benched_until": null
+}

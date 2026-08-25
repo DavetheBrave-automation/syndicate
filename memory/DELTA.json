@@ -1,12 +1,22 @@
 {
   "name": "DELTA",
-  "rules": [],
-  "lessons": [],
+  "rules": [
+    "Skip entries where fees exceed 5% of max potential profit OR 25% of expected gross at target; re-verify at submission.",
+    "Require minimum entry price of $0.10 to maintain viable fee-to-profit ratios.",
+    "Verify fee-to-max-profit ratio at entry; reject if calculation returns above 5%.",
+    "Reject entries where fees exceed 25% of expected gross profit at target exit."
+  ],
+  "lessons": [
+    "The position held for the full 60-minute max without reaching a profitable exit, and fees of $3.12 nearly matched the gross loss of $3.12, doubling the damage. Small-quantity trades on binary contracts are particularly vulnerable to fee drag when held to time expiry.",
+    "The trade hit +23% target but fees consumed 25.6% of gross profit, indicating the existing fee-filter rule failed to block this low-priced entry where flat fees are structurally punishing.",
+    "The 'no' position entered at $0.45 suffered a -34.4% loss as price rose to $0.605, with fees of $2.68 consuming 10.8% of maximum potential profit \u0393\u00c7\u00f6 well above the 5% rule threshold that should have blocked this entry. Either Rule 0 was not enforced or the fee calculation failed at entry time.",
+    "Trade exited cleanly at +38% PnL, correctly triggering the upper hold bound exit; however, fees consumed 30% of gross profit ($0.95 of $3.13), indicating the entry price was near the minimum viable threshold where fee drag becomes significant."
+  ],
   "performance": {
-    "trades": 0,
-    "wins": 0,
-    "losses": 0,
-    "total_pnl": 0.0
+    "trades": 39,
+    "wins": 16,
+    "losses": 23,
+    "total_pnl": -22.8784
   },
   "loss_streak": 0,
   "benched": false,

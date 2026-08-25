@@ -1,0 +1,25 @@
+{
+  "name": "PHOENIX",
+  "rules": [
+    "YES side (trailing team): yes_price < 0.45 \u2014 minimum 12% edge vs true comeback prob",
+    "NO side (overpriced favorite): yes_price > 0.55 \u2014 minimum 12% edge when market overprices leader",
+    "Skip 0.45\u20130.55 zone \u2014 too close to call, edge is unreliable near 50\u00a2",
+    "Tennis YES: never trade after player goes down 0-2 sets in best-of-3",
+    "Baseball YES: never enter after 7th inning \u2014 variance too low to recover",
+    "Basketball YES: never enter if down 15+ points with under 4 minutes remaining",
+    "Higher confidence on bigger deficits with more time remaining (deep value zone)",
+    "Exit immediately if price snaps back 8%+ toward true prob",
+    "Never pyramid into a losing position \u2014 one position per market only",
+    "Volume must exceed 1000 for any trade (paper mode threshold)"
+  ],
+  "lessons": [],
+  "performance": {
+    "trades": 3,
+    "wins": 0,
+    "losses": 3,
+    "total_pnl": -4.41
+  },
+  "loss_streak": 3,
+  "benched": false,
+  "benched_until": null
+}

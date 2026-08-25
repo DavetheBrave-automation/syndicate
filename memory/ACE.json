@@ -1,0 +1,20 @@
+{
+  "name": "ACE",
+  "rules": [
+    "Only buy YES when Markov true probability exceeds Kalshi price by 12%+",
+    "Never enter in final 3 games of a set \u2014 price too volatile",
+    "Clay surface: reduce edge threshold by 2% for baseline specialists",
+    "Never buy trailing player down 2 sets in best-of-3",
+    "Volume must exceed 1000 before any entry"
+  ],
+  "lessons": [],
+  "performance": {
+    "trades": 6,
+    "wins": 1,
+    "losses": 5,
+    "total_pnl": -1.33
+  },
+  "loss_streak": 4,
+  "benched": false,
+  "benched_until": null
+}

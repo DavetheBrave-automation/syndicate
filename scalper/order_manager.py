@@ -34,6 +34,23 @@ sys.path.insert(0, _SYNDICATE_ROOT)
 
 logger = logging.getLogger("syndicate.orders")
 
+KALSHI_MAX_PER_ORDER = 99   # Kalshi single-order contract cap — chunk larger positions
+
+
+def _compute_chunks(total_quantity: int) -> list[int]:
+    """Split total_quantity into groups of ≤ KALSHI_MAX_PER_ORDER contracts."""
+    chunks, remaining = [], total_quantity
+    while remaining > 0:
+        c = min(remaining, KALSHI_MAX_PER_ORDER)
+        chunks.append(c)
+        remaining -= c
+    return chunks
+
+
+def _chunk_summary(chunks: list[int]) -> str:
+    """Human-readable breakdown: '99+99+99+36'."""
+    return "+".join(str(c) for c in chunks)
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -126,7 +143,6 @@ def place_order(
     try:
         # ── Paper mode ──────────────────────────────────────────────────────
         if _is_paper_mode():
-            order_id    = f"PAPER-{ticker}-{int(time.time())}"
             # Convention: entry_price always stores YES price in cents.
             # For YES side: price = yes_price directly.
             # For NO  side: price = contract_price = 1 - yes_price,
@@ -136,12 +152,31 @@ def place_order(
             else:
                 entry_cents = int(round(price * 100))
 
+            # Chunk into ≤99-contract orders (Kalshi per-order limit).
+            # Paper mode simulates each chunk with 200ms delay and unified position.
+            chunks  = _compute_chunks(quantity)
+            t0      = time.time()
+            order_ids: list[str] = []
+            for i, chunk_qty in enumerate(chunks):
+                if i > 0:
+                    time.sleep(0.2)   # 200ms between chunks — mirrors live rate-limit spacing
+                cid = f"PAPER-{ticker}-{int(t0)}-C{i + 1}of{len(chunks)}"
+                order_ids.append(cid)
+                if len(chunks) > 1:
+                    logger.info(
+                        "[PAPER] Chunk %d/%d: %s %s %dx @ %d¢ | order=%s",
+                        i + 1, len(chunks), side.upper(), ticker, chunk_qty,
+                        (100 - entry_cents) if side.lower() == "no" else entry_cents, cid,
+                    )
+            order_id    = order_ids[0]
+            chunk_count = len(chunks)
+
             position = Position(
                 ticker             = ticker,
                 side               = side,
                 quantity           = quantity,
                 entry_price        = entry_cents,
-                entry_time         = time.time(),
+                entry_time         = t0,
                 stop_price         = stop_price,
                 target_price       = target_price,
                 order_id           = order_id,
@@ -157,23 +192,42 @@ def place_order(
             state.add_position(position)
             state.remove_pending(ticker)
 
-            # Display cost = actual contract price paid.
-            # entry_cents stores YES price by convention; for NO trades, actual cost = 100 - entry_cents.
             display_cost = (100 - entry_cents) if side.lower() == "no" else entry_cents
-
             logger.info(
-                "[PAPER] Simulated fill: %s %s %dx @ %d¢ (YES=%d¢) | stop=%.0f¢ target=%.0f¢ | htsr=%s | rule=%s",
+                "[PAPER] %s entry: %s %s %dx @ %d¢ (YES=%d¢)%s | stop=%.0f¢ target=%.0f¢ | htsr=%s | rule=%s",
+                f"Chunked ({chunk_count} orders)" if chunk_count > 1 else "Simulated",
                 side.upper(), ticker, quantity, display_cost, entry_cents,
+                f" [{_chunk_summary(chunks)}]" if chunk_count > 1 else "",
                 stop_price, target_price, rule.get("hold_to_settlement", False), rule_id,
             )
+
             try:
-                from notifications.discord import post as _discord_post
-                _discord_post(f"PAPER FILL: {ticker} {side} @ {display_cost}¢ (YES={entry_cents}¢)")
+                from core.agent_tier_manager import get_agent_tier  # noqa: PLC0415
+                _agent_tier = get_agent_tier(agent_name)
+            except Exception:
+                _agent_tier = "probation"
+            _trade_data = {
+                "ticker":          ticker,
+                "agent_name":      agent_name,
+                "agent_tier":      _agent_tier,
+                "conviction_tier": rule.get("conviction_tier", "?"),
+                "side":            side,
+                "quantity":        quantity,
+                "price_cents":     display_cost,
+                "size_dollars":    display_cost / 100.0 * quantity,
+                "edge_pct":        rule.get("edge_pct", 0.0),
+                "paper":           True,
+                "chunk_count":     chunk_count,
+                "chunk_summary":   _chunk_summary(chunks) if chunk_count > 1 else None,
+            }
+            try:
+                from notifications.discord import post_entry_embed as _disc_entry  # noqa: PLC0415
+                _disc_entry(_trade_data)
             except Exception:
                 pass
             try:
-                from notifications.telegram import post as _tg_post
-                _tg_post(f"PAPER FILL: {ticker} {side} @ {display_cost}¢ (YES={entry_cents}¢)")
+                from notifications.telegram import post_trade_entry as _tg_entry  # noqa: PLC0415
+                _tg_entry(_trade_data)
             except Exception:
                 pass
             return order_id
@@ -182,33 +236,79 @@ def place_order(
         # Aggressive limit: price + 0.03, capped at 0.99
         aggressive_price = min(0.99, price + 0.03)
 
-        result = kalshi_rest.place_limit_buy(ticker, side, quantity, aggressive_price)
-        if not result or "error" in result:
-            logger.error(
-                "[OrderManager] Live buy failed for %s: %s", ticker, result
-            )
+        # Chunk into ≤99-contract orders; track fills across all chunks.
+        chunks           = _compute_chunks(quantity)
+        order_ids:  list[str]   = []
+        total_filled            = 0
+        weighted_price_sum      = 0.0
+        first_chunk_price       = aggressive_price
+        t0                      = time.time()
+
+        for i, chunk_qty in enumerate(chunks):
+            if i > 0:
+                time.sleep(0.2)   # 200ms between chunks — Kalshi rate-limit safety
+
+            result = kalshi_rest.place_limit_buy(ticker, side, chunk_qty, aggressive_price)
+            if not result or "error" in result:
+                logger.error(
+                    "[OrderManager] Live buy chunk %d/%d failed for %s: %s",
+                    i + 1, len(chunks), ticker, result,
+                )
+                if i == 0:
+                    state.remove_pending(ticker)
+                    return None
+                logger.warning(
+                    "[OrderManager] Halting after chunk %d/%d partial fill: %d/%d contracts for %s",
+                    i, len(chunks), total_filled, quantity, ticker,
+                )
+                break
+
+            order    = result.get("order", result)
+            order_id = order.get("order_id", "")
+            if not order_id:
+                logger.error("[OrderManager] No order_id in chunk %d/%d response for %s: %s", i + 1, len(chunks), ticker, result)
+                if i == 0:
+                    state.remove_pending(ticker)
+                    return None
+                break
+
+            chunk_filled = int(order.get("filled_count", chunk_qty))
+            order_ids.append(order_id)
+            total_filled        += chunk_filled
+            weighted_price_sum  += aggressive_price * chunk_filled
+
+            slippage_cents = abs(aggressive_price - first_chunk_price) * 100
+            if slippage_cents > 3.0:
+                logger.warning(
+                    "[CHUNK SLIPPAGE WARN] %s chunk %d fill price drift %.1f¢ vs first chunk",
+                    ticker, i + 1, slippage_cents,
+                )
+            if chunk_filled < chunk_qty:
+                logger.warning(
+                    "[OrderManager] Partial fill chunk %d/%d: %d/%d contracts | halting | %s",
+                    i + 1, len(chunks), chunk_filled, chunk_qty, ticker,
+                )
+                break
+
+        if total_filled == 0:
             state.remove_pending(ticker)
             return None
 
-        order    = result.get("order", result)
-        order_id = order.get("order_id", "")
-        if not order_id:
-            logger.error("[OrderManager] No order_id in response for %s: %s", ticker, result)
-            state.remove_pending(ticker)
-            return None
+        avg_price = weighted_price_sum / total_filled
+        order_id  = order_ids[0]
+        filled_chunks = _compute_chunks(total_filled)  # re-chunk based on actual fills
 
-        # Convention: entry_price always stores YES price in cents.
         if side.lower() == "no":
-            entry_cents = int(round((1.0 - aggressive_price) * 100))
+            entry_cents = int(round((1.0 - avg_price) * 100))
         else:
-            entry_cents = int(round(aggressive_price * 100))
+            entry_cents = int(round(avg_price * 100))
 
         position = Position(
             ticker             = ticker,
             side               = side,
-            quantity           = quantity,
+            quantity           = total_filled,
             entry_price        = entry_cents,
-            entry_time         = time.time(),
+            entry_time         = t0,
             stop_price         = stop_price,
             target_price       = target_price,
             order_id           = order_id,
@@ -224,10 +324,13 @@ def place_order(
         state.add_position(position)
         state.remove_pending(ticker)
 
+        chunk_count = len(order_ids)
         logger.info(
-            "[OrderManager] Live buy placed: %s %s %dx @ %.3f | order_id=%s | htsr=%s | rule=%s",
-            side.upper(), ticker, quantity, aggressive_price, order_id,
-            rule.get("hold_to_settlement", False), rule_id,
+            "[OrderManager] Live buy %s: %s %s %dx @ %.3f avg%s | order_id=%s | htsr=%s | rule=%s",
+            f"chunked ({chunk_count} orders)" if chunk_count > 1 else "placed",
+            side.upper(), ticker, total_filled, avg_price,
+            f" [{_chunk_summary(filled_chunks)}]" if chunk_count > 1 else "",
+            order_id, rule.get("hold_to_settlement", False), rule_id,
         )
         return order_id
 
@@ -278,28 +381,60 @@ def close_position(position, exit_price: float, exit_reason: str) -> bool:
             state.record_trade_pnl(pnl)
             state.remove_position(ticker)
 
+            exit_chunks = _compute_chunks(quantity)
+            chunk_count = len(exit_chunks)
             logger.info(
-                "[PAPER] Simulated exit: %s %s %dx @ %.3f | spread=%.3f pnl=$%.2f | %s",
-                side.upper(), ticker, quantity, exit_price, spread, pnl, exit_reason,
+                "[PAPER] %s exit: %s %s %dx @ %.3f%s | spread=%.3f pnl=$%.2f | %s",
+                f"Chunked ({chunk_count} orders)" if chunk_count > 1 else "Simulated",
+                side.upper(), ticker, quantity, exit_price,
+                f" [{_chunk_summary(exit_chunks)}]" if chunk_count > 1 else "",
+                spread, pnl, exit_reason,
             )
+
             if position.side == "no":
                 display_entry = 100 - position.entry_price  # actual NO cost
                 display_exit  = int((1.0 - exit_price) * 100)
             else:
                 display_entry = position.entry_price
                 display_exit  = int(exit_price * 100)
+
+            hold_minutes = (time.time() - position.entry_time) / 60.0
+
             try:
-                from notifications.discord import post_exit as _discord_post_exit
-                _discord_post_exit(
-                    ticker, side, quantity,
-                    display_entry, display_exit,
-                    pnl, exit_reason, position.agent_name, paper=True,
-                )
+                from core.agent_tier_manager import get_agent_tier  # noqa: PLC0415
+                _agent_tier = get_agent_tier(position.agent_name)
+            except Exception:
+                _agent_tier = "probation"
+            try:
+                from core.fee_calculator import calculate_roundtrip_fee as _crf  # noqa: PLC0415
+                _fees_paid = _crf(quantity, position.entry_price, int(exit_price * 100))
+            except Exception:
+                _fees_paid = 0.0
+            _exit_data = {
+                "ticker":             ticker,
+                "agent_name":         position.agent_name,
+                "agent_tier":         _agent_tier,
+                "side":               side,
+                "quantity":           quantity,
+                "entry_price_cents":  display_entry,
+                "exit_price_cents":   display_exit,
+                "pnl":                round(pnl, 4),
+                "fees_paid":          round(_fees_paid, 4),
+                "net_pnl":            round(pnl - _fees_paid, 4),
+                "hold_minutes":       round(hold_minutes, 1),
+                "exit_reason":        exit_reason,
+                "paper":              True,
+                "chunk_count":        chunk_count,
+                "chunk_summary":      _chunk_summary(exit_chunks) if chunk_count > 1 else None,
+            }
+            try:
+                from notifications.discord import post_exit_embed as _disc_exit  # noqa: PLC0415
+                _disc_exit(_exit_data)
             except Exception:
                 pass
             try:
-                from notifications.telegram import post as _tg_post
-                _tg_post(f"PAPER EXIT: {ticker} {side.upper()} pnl={pnl:+.2f}")
+                from notifications.telegram import post_trade_exit as _tg_exit  # noqa: PLC0415
+                _tg_exit(_exit_data)
             except Exception:
                 pass
             _record_outcome(position, exit_price, exit_reason, pnl, spread=spread)
@@ -311,24 +446,47 @@ def close_position(position, exit_price: float, exit_reason: str) -> bool:
         # Aggressive limit: price - 0.03, floored at 0.01
         aggressive_price = max(0.01, exit_price - 0.03)
 
-        result = kalshi_rest.place_limit_sell(ticker, side, quantity, aggressive_price)
-        if not result or "error" in result:
-            logger.error(
-                "[OrderManager] Live sell failed for %s: %s", ticker, result
-            )
+        # Chunk large exits into ≤99-contract sell orders
+        exit_chunks      = _compute_chunks(quantity)
+        total_sold       = 0
+        weighted_exit    = 0.0
+
+        for i, chunk_qty in enumerate(exit_chunks):
+            if i > 0:
+                time.sleep(0.2)
+            result = kalshi_rest.place_limit_sell(ticker, side, chunk_qty, aggressive_price)
+            if not result or "error" in result:
+                logger.error(
+                    "[OrderManager] Live sell chunk %d/%d failed for %s: %s",
+                    i + 1, len(exit_chunks), ticker, result,
+                )
+                break
+            chunk_filled  = int(result.get("order", result).get("filled_count", chunk_qty))
+            total_sold   += chunk_filled
+            weighted_exit += aggressive_price * chunk_filled
+            if chunk_filled < chunk_qty:
+                logger.warning(
+                    "[OrderManager] Partial sell fill chunk %d/%d: %d/%d | %s",
+                    i + 1, len(exit_chunks), chunk_filled, chunk_qty, ticker,
+                )
+                break
+
+        if total_sold == 0:
+            logger.error("[OrderManager] Live sell produced zero fills for %s", ticker)
             return False
 
-        # Use the aggressive limit as the effective exit price
-        # (fills immediately at market or better for aggressive limit)
-        effective_exit = aggressive_price
-
+        effective_exit = weighted_exit / total_sold
         pnl = _compute_pnl(position, effective_exit)
         state.record_trade_pnl(pnl)
         state.remove_position(ticker)
 
+        chunk_count = len(exit_chunks)
         logger.info(
-            "[OrderManager] Live sell placed: %s %s %dx @ %.3f | pnl=$%.2f | %s",
-            side.upper(), ticker, quantity, effective_exit, pnl, exit_reason,
+            "[OrderManager] Live sell %s: %s %s %dx @ %.3f%s | pnl=$%.2f | %s",
+            f"chunked ({chunk_count} orders)" if chunk_count > 1 else "placed",
+            side.upper(), ticker, total_sold, effective_exit,
+            f" [{_chunk_summary(exit_chunks)}]" if chunk_count > 1 else "",
+            pnl, exit_reason,
         )
         _record_outcome(position, effective_exit, exit_reason, pnl)
         return True

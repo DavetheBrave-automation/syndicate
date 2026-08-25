@@ -109,7 +109,7 @@ class OutcomeReporter:
     # -----------------------------------------------------------------------
 
     def init_db(self):
-        """Create syndicate_trades.db and schema if not present."""
+        """Create syndicate_trades.db and schema if not present. Adds fee columns if missing."""
         os.makedirs(os.path.dirname(_DB_PATH), exist_ok=True)
         with self._db_lock:
             conn = self._get_conn()
@@ -129,9 +129,17 @@ class OutcomeReporter:
                     contract_class TEXT,
                     entry_time     TEXT    NOT NULL,
                     exit_time      TEXT    NOT NULL,
-                    order_id       TEXT
+                    order_id       TEXT,
+                    fees_paid      REAL,
+                    net_pnl        REAL
                 )
             """)
+            # Add fee columns to existing DBs (idempotent — fails silently if already present)
+            for col, typedef in [("fees_paid", "REAL"), ("net_pnl", "REAL")]:
+                try:
+                    conn.execute(f"ALTER TABLE syndicate_trades ADD COLUMN {col} {typedef}")
+                except Exception:
+                    pass  # column already exists
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_st_ticker ON syndicate_trades(ticker)"
             )
@@ -175,7 +183,7 @@ class OutcomeReporter:
             position:    core.shared_state.Position dataclass
             exit_price:  decimal dollars (e.g. 0.62)
             exit_reason: human-readable exit label
-            pnl:         dollars P&L (positive = win, negative = loss)
+            pnl:         gross dollars P&L (before Kalshi fees)
         """
         pfx = "[PAPER] " if _is_paper_mode() else ""
 
@@ -195,6 +203,21 @@ class OutcomeReporter:
             position.entry_time, tz=timezone.utc
         ).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+        # -- Kalshi fee calculation -------------------------------------------
+        try:
+            from core.fee_calculator import calculate_roundtrip_fee  # noqa: PLC0415
+            entry_cents = int(position.entry_price)
+            exit_cents  = int(round(exit_price * 100))
+            fees_paid   = calculate_roundtrip_fee(position.quantity, entry_cents, exit_cents)
+        except Exception as _fee_exc:
+            logger.error(
+                "[OutcomeReporter] Fee calc FAILED for %s qty=%d entry=%d exit_price=%.4f — "
+                "writing fees=0.0 so row is not lost. Error: %s",
+                position.ticker, position.quantity, int(position.entry_price), exit_price, _fee_exc,
+            )
+            fees_paid = 0.0
+        net_pnl = round(pnl - fees_paid, 4)
+
         # -- Write to DB ------------------------------------------------------
         with self._db_lock:
             try:
@@ -203,15 +226,16 @@ class OutcomeReporter:
                     INSERT INTO syndicate_trades
                       (ticker, side, entry_price, exit_price, quantity,
                        pnl, hold_seconds, exit_reason, rule_id, agent_name,
-                       contract_class, entry_time, exit_time, order_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       contract_class, entry_time, exit_time, order_id,
+                       fees_paid, net_pnl)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     position.ticker,
                     position.side,
                     int(position.entry_price),   # cents integer
                     exit_price,
                     position.quantity,
-                    pnl,
+                    pnl,                          # gross P&L (kept for backward compat)
                     hold_seconds,
                     exit_reason,
                     getattr(position, "rule_id", None),
@@ -220,20 +244,22 @@ class OutcomeReporter:
                     entry_time_iso,
                     exit_time_iso,
                     getattr(position, "order_id", None),
+                    fees_paid,
+                    net_pnl,
                 ))
                 conn.commit()
                 conn.close()
             except Exception as e:
                 logger.error("%s[OutcomeReporter] DB write failed: %s", pfx, e)
 
-        result = "WIN" if pnl >= 0 else "LOSS"
+        result = "WIN" if net_pnl >= 0 else "LOSS"
         logger.info(
             "%s[OutcomeReporter] %s | %s %s %dx entry=%d¢ exit=%.3f "
-            "pnl=$%.2f hold=%.0fs | %s",
+            "gross=$%.2f fees=$%.2f net=$%.2f hold=%.0fs | %s",
             pfx, result,
             position.side.upper(), position.ticker, position.quantity,
-            int(position.entry_price), exit_price, pnl, hold_seconds,
-            exit_reason,
+            int(position.entry_price), exit_price, pnl, fees_paid, net_pnl,
+            hold_seconds, exit_reason,
         )
 
         # -- Write trigger JSON -----------------------------------------------
@@ -243,6 +269,8 @@ class OutcomeReporter:
                 exit_price=exit_price,
                 exit_reason=exit_reason,
                 pnl=pnl,
+                fees_paid=fees_paid,
+                net_pnl=net_pnl,
                 spread=spread,
                 hold_seconds=hold_seconds,
                 entry_time_iso=entry_time_iso,
@@ -255,7 +283,9 @@ class OutcomeReporter:
         agent_name = getattr(position, "agent_name", None)
         if agent_name and agent_name in self._agents:
             outcome_dict = {
-                "pnl":          pnl,
+                "pnl":          net_pnl,    # agents see net P&L for learning
+                "gross_pnl":    pnl,
+                "fees_paid":    fees_paid,
                 "ticker":       position.ticker,
                 "exit_reason":  exit_reason,
                 "exit_price":   exit_price,
@@ -273,7 +303,9 @@ class OutcomeReporter:
                 "side":          position.side,
                 "entry_price":   int(position.entry_price),
                 "exit_price":    exit_price,
-                "pnl":           pnl,
+                "pnl":           net_pnl,
+                "gross_pnl":     pnl,
+                "fees_paid":     fees_paid,
                 "hold_seconds":  hold_seconds,
                 "exit_reason":   exit_reason,
                 "edge_pct":      getattr(position, "edge_at_entry", 0.0),
@@ -283,11 +315,11 @@ class OutcomeReporter:
         # -- Discord + Telegram notification (non-blocking) ------------------
         self._fire(
             self._post_discord_exit,
-            position, exit_price, exit_reason, pnl, hold_seconds, pfx,
+            position, exit_price, exit_reason, pnl, fees_paid, net_pnl, hold_seconds, pfx,
         )
         self._fire(
             self._post_telegram_exit,
-            position, exit_price, exit_reason, pnl, hold_seconds, pfx,
+            position, exit_price, exit_reason, pnl, fees_paid, net_pnl, hold_seconds, pfx,
         )
 
     # -----------------------------------------------------------------------
@@ -297,7 +329,8 @@ class OutcomeReporter:
     def _write_trigger(self, position, exit_price: float, exit_reason: str,
                        pnl: float, hold_seconds: float,
                        entry_time_iso: str, exit_time_iso: str,
-                       spread: float = 0.0):
+                       spread: float = 0.0, fees_paid: float = 0.0,
+                       net_pnl: float = 0.0):
         os.makedirs(_TRIGGERS_DIR, exist_ok=True)
         ts_tag = exit_time_iso.replace(":", "").replace("-", "").replace("T", "_").replace("Z", "")
         filename = f"outcome_{position.ticker}_{ts_tag}.json"
@@ -309,9 +342,12 @@ class OutcomeReporter:
             "entry_price_cents": int(position.entry_price),
             "exit_price":        exit_price,
             "quantity":          position.quantity,
-            "pnl":               round(pnl, 4),
+            "gross_pnl":         round(pnl, 4),
+            "fees_paid":         round(fees_paid, 4),
+            "net_pnl":           round(net_pnl, 4),
+            "pnl":               round(net_pnl, 4),   # TC reads "pnl" — always net now
             "spread_cost":       spread_cost,
-            "true_pnl":          round(pnl, 4),
+            "true_pnl":          round(net_pnl, 4),
             "hold_seconds":      hold_seconds,
             "exit_reason":       exit_reason,
             "rule_id":           getattr(position, "rule_id", None),
@@ -331,7 +367,8 @@ class OutcomeReporter:
     # -----------------------------------------------------------------------
 
     def _post_discord_exit(self, position, exit_price: float, exit_reason: str,
-                           pnl: float, hold_seconds: float, pfx: str):
+                           pnl: float, fees_paid: float, net_pnl: float,
+                           hold_seconds: float, pfx: str):
         try:
             import notifications.discord as discord
         except ImportError:
@@ -346,7 +383,7 @@ class OutcomeReporter:
                 position.quantity,
                 int(position.entry_price),
                 exit_price,
-                pnl,
+                net_pnl,
                 hold_seconds,
                 exit_reason,
             )
@@ -354,23 +391,26 @@ class OutcomeReporter:
             logger.warning("%s[OutcomeReporter] Discord post failed: %s", pfx, e)
 
     def _post_telegram_exit(self, position, exit_price: float, exit_reason: str,
-                            pnl: float, hold_seconds: float, pfx: str):
+                            pnl: float, fees_paid: float, net_pnl: float,
+                            hold_seconds: float, pfx: str):
         try:
             import notifications.telegram as telegram
         except ImportError:
             return
         try:
             entry_dollars = int(position.entry_price) / 100.0
-            pnl_sign = "+" if pnl >= 0 else ""
             hold_str = f"{int(hold_seconds // 60)}m {int(hold_seconds % 60)}s"
-            outcome = "WIN" if pnl >= 0 else "LOSS"
-            agent = getattr(position, "agent_name", None) or "unknown"
-            cls   = getattr(position, "contract_class", None) or ""
-            emoji = "✅" if pnl >= 0 else "❌"
+            outcome  = "WIN" if net_pnl >= 0 else "LOSS"
+            agent    = getattr(position, "agent_name", None) or "unknown"
+            cls      = getattr(position, "contract_class", None) or ""
+            emoji    = "✅" if net_pnl >= 0 else "❌"
+            gross_str = f"{'+' if pnl >= 0 else ''}${pnl:.2f}"
+            net_str   = f"{'+' if net_pnl >= 0 else ''}${net_pnl:.2f}"
             telegram.post(
-                f"{pfx}EXIT | {outcome} | {pnl_sign}${pnl:.2f} | {position.ticker}\n"
+                f"{pfx}EXIT | {outcome} | {net_str} (net) | {position.ticker}\n"
                 f"{position.side.upper()} {position.quantity}x | "
                 f"Entry: ${entry_dollars:.2f} → Exit: ${exit_price:.2f}\n"
+                f"Gross: {gross_str} | Fees: -${fees_paid:.2f} | Net: {net_str}\n"
                 f"Hold: {hold_str} | Agent: {agent} | {cls}\n"
                 f"Reason: {exit_reason}",
                 emoji,

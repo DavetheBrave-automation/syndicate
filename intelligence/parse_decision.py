@@ -195,8 +195,15 @@ def main():
     except ValueError:
         pass
 
-    # Cap size at $50 (hard ceiling regardless of QUANT recommendation)
-    rec_size = min(rec_size, 50)
+    # Apply tier-based size cap (GLITCH ≤ $50, HIGH_CONVICTION ≤ $200, PROPHECY ≤ $500)
+    _TIER_MAX = {"GLITCH": 50, "HIGH_CONVICTION": 200, "PROPHECY": 500}
+    tier_max = _TIER_MAX.get(conviction_tier, 200)
+
+    # If TC didn't extract a size, fall back to signal's max_size_dollars (set by base_agent)
+    if rec_size <= 0:
+        rec_size = int(_order_fields.get("max_size_dollars") or 25)
+
+    rec_size = min(rec_size, tier_max)
 
     # ── Apply voting rules (Python is authoritative) ──
     decision = apply_voting_rules(

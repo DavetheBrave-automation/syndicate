@@ -228,10 +228,6 @@ class ShadowAgent(BaseAgent):
         sig["reasoning"] = f"[SHADOW → {top}] " + sig.get("reasoning", "")
         signal["agent"]  = self.name
 
-        # Cap at $1 if shadowing GHOST
-        if top == "GHOST":
-            sig["max_size_dollars"] = 1
-
         self.submit_signal(signal)
 
     # =========================================================================

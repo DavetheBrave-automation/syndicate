@@ -6,120 +6,207 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="refresh" content="60">
 <style>
+/* ── RESET ─────────────────────────────────────────────────────── */
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#060606;color:#f0f4ff;font-family:'Courier New',monospace;font-size:12px;padding:10px}
+body{background:#060606;color:#f0f4ff;font-family:'Courier New',monospace;font-size:12px;padding:10px;max-width:1600px;margin:0 auto}
 a{color:#93c5fd;text-decoration:none}
 
-/* Header */
-.hdr{border-bottom:1px solid #222;padding-bottom:8px;margin-bottom:12px}
+/* ── COLORS ─────────────────────────────────────────────────────── */
+.g{color:#68f5a8}.r{color:#ff8fa3}.y{color:#fcd34d}.b{color:#93c5fd}.p{color:#c4b5fd}
+.dim{color:#718096}
+.ts{color:#a0aec0;font-size:9px}
+.pnl-pos{color:#68f5a8}.pnl-neg{color:#ff8fa3}
+.rank-1{color:#ffd700}.rank-2{color:#c4b5fd}.rank-3{color:#cd7f32}
+
+/* ── HEADER ─────────────────────────────────────────────────────── */
+.hdr{border-bottom:1px solid #222;padding-bottom:8px;margin-bottom:10px}
 .hdr h1{font-size:14px;color:#00ff88;letter-spacing:2px}
 .hdr .sub{color:#a0aec0;font-size:10px;margin-top:3px}
 .badge-paper{background:#001a33;color:#93c5fd;padding:1px 6px;border-radius:2px;font-size:9px;border:1px solid #003366}
 .badge-live{background:#330000;color:#ff8fa3;padding:1px 6px;border-radius:2px;font-size:9px;border:1px solid #660000}
 
-/* Grid */
-.row{display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap}
-.col{flex:1;min-width:220px}
-.col-wide{flex:2;min-width:360px}
-.col-full{flex:100%}
+/* ── PANELS (containment — no overflow bleed) ───────────────────── */
+.panel{background:#0e0e0e;border:1px solid #1c1c1c;border-radius:4px;
+       overflow:hidden;position:relative;margin-bottom:8px;flex-shrink:0}
+.panel-hdr{font-size:9px;color:#fff;text-transform:uppercase;letter-spacing:2px;
+           padding:6px 10px;border-bottom:1px solid #1a1a1a;background:#0e0e0e;
+           white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.panel-hdr.clickable{cursor:pointer;user-select:none}
+.panel-hdr.clickable:hover{background:#111}
+.panel-body{padding:6px 0}
 
-/* Sections */
-.sec{background:#0e0e0e;border:1px solid #1c1c1c;border-radius:4px;padding:10px;height:100%}
-.sec h2{font-size:9px;color:#ffffff;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;border-bottom:1px solid #1a1a1a;padding-bottom:4px}
+/* ── FLEET INTELLIGENCE BAR ─────────────────────────────────────── */
+.fi-bar{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
+        background:#1c1c1c;border:1px solid #1c1c1c;border-radius:4px;
+        margin-bottom:8px;overflow:hidden}
+.fi-col{background:#0e0e0e;padding:7px 10px;min-width:0;overflow:hidden}
+.fi-label{font-size:8px;color:#718096;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:4px}
+.fi-val{font-size:10px;line-height:1.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fi-tier-chips{display:flex;gap:3px;flex-wrap:wrap;margin-top:3px}
+.fi-chip{padding:1px 5px;border-radius:2px;font-size:9px;white-space:nowrap}
+.fi-chip.elite{background:#1a1a00;color:#ffd700;border:1px solid #3a3a00}
+.fi-chip.proven{background:#001a1a;color:#68f5a8;border:1px solid #003a3a}
+.fi-chip.qualified{background:#0a0a1a;color:#93c5fd;border:1px solid #1a1a3a}
+.fi-chip.probation{background:#1a0a00;color:#cd7f32;border:1px solid #3a1a00}
 
-/* Tables */
-table{width:100%;border-collapse:collapse;font-size:11px}
-th{color:#ffffff;padding:3px 5px;text-align:left;font-weight:normal;border-bottom:1px solid #1a1a1a;font-size:9px;text-transform:uppercase;letter-spacing:1px}
-td{padding:3px 5px;border-bottom:1px solid #111;vertical-align:top;color:#f0f4ff;font-size:13px}
+/* ── LAYOUT ROWS ─────────────────────────────────────────────────── */
+.row{display:flex;gap:8px;margin-bottom:8px;align-items:flex-start}
+.row>.panel{margin-bottom:0;flex:1}
+.col-macro{flex:1!important;min-width:175px}
+.col-roster{flex:2!important;min-width:280px}
+.col-lb{flex:2!important;min-width:175px}
+.col-trades{flex:3!important;min-width:270px}
+
+/* ── TABLES ──────────────────────────────────────────────────────── */
+table{width:100%;border-collapse:collapse}
+th{color:#fff;padding:3px 6px;text-align:left;font-weight:normal;
+   border-bottom:1px solid #1a1a1a;font-size:9px;text-transform:uppercase;letter-spacing:1px}
+td{padding:3px 6px;border-bottom:1px solid #111;vertical-align:top;color:#f0f4ff;font-size:11px}
 tr:hover td{background:#131313}
-
-/* Colors */
-.g{color:#68f5a8}.r{color:#ff8fa3}.y{color:#fcd34d}.b{color:#93c5fd}.p{color:#c4b5fd}
-.dim{color:#718096}
-.ts{color:#a0aec0;font-size:9px}
-
-/* Agent tiles */
-.roster{display:flex;flex-wrap:wrap;gap:5px}
-.tile{background:#111;border:1px solid #1e1e1e;border-radius:3px;padding:6px 8px;min-width:130px;position:relative}
-.tile.benched{border-color:#330000;opacity:0.5}
-.tile.new-agent{border-color:#ff8844}
-.agent-header{cursor:pointer}
-.agent-header:hover{background:rgba(255,255,255,0.03);border-radius:4px}
-.tile .agent-name{font-size:14px;font-weight:700;color:#ffffff;margin-bottom:2px}
-.tile .agent-name.new-agent{color:#ff8844}
-.tile .stats{font-size:12px;color:#f0f4ff}
-.tile .pnl{font-size:10px;margin-top:2px}
-.tile .pnl.pos{color:#68f5a8}.tile .pnl.neg{color:#ff8fa3}.tile .pnl.zero{color:#718096}
-.dropdown-arrow{float:right;color:#718096;font-size:10px}
-
-/* Agent history dropdown */
-.agent-history{border-top:1px solid #2a3045;margin-top:8px;padding-top:8px}
-.history-table{width:100%;font-size:11px}
-.history-table td{padding:4px 6px;color:#f0f4ff;font-size:11px}
-.history-table th{color:#ffffff;padding:4px 6px;font-size:9px}
-.win-row{background:rgba(104,245,168,0.05)}
-.loss-row{background:rgba(255,143,163,0.05)}
-.pnl-win{color:#68f5a8;font-weight:700}
-.pnl-loss{color:#ff8fa3;font-weight:700}
-.yes-side{color:#68f5a8}
-.no-side{color:#ff8fa3}
-.ticker-cell{color:#93c5fd;font-family:monospace}
-.reason-cell{color:#a0aec0;font-size:10px}
-
-/* Macro table */
-.macro-val{color:#ffffff;font-weight:600}
+.macro-table td{font-size:10px}
+.signal-label{color:#a0aec0;font-size:9px;white-space:nowrap}
+.macro-val{color:#fff;font-weight:600;font-size:10px}
 .macro-val.HAWKISH,.macro-val.RISING,.macro-val.INVERTED,.macro-val.HIGH,.macro-val.EXTREME{color:#ff8fa3}
 .macro-val.DOVISH,.macro-val.FALLING,.macro-val.NORMAL,.macro-val.LOW{color:#68f5a8}
 .macro-val.FEAR,.macro-val.EXTREME_FEAR{color:#ff8fa3}
 .macro-val.GREED,.macro-val.EXTREME_GREED{color:#fcd34d}
 .macro-val.NEUTRAL,.macro-val.FLAT,.macro-val.MEDIUM{color:#718096}
-.signal-value{color:#ffffff;font-weight:600}
-.signal-label{color:#a0aec0}
 
-/* Log feed */
-.log-wrap{font-size:9px;line-height:1.6;max-height:220px;overflow-y:auto;color:#a0aec0}
+/* ── AGENT GRID (4 columns, compact) ────────────────────────────── */
+.agent-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;padding:8px}
+.agent-card{background:#111;border:1px solid #1e1e1e;border-radius:3px;
+            padding:5px 7px;overflow:hidden;cursor:pointer;position:relative}
+.agent-card:hover{border-color:#2a2a2a}
+.agent-card.benched{border-color:#330000;opacity:0.5}
+.agent-card.new-agent{border-color:#ff8844}
+.aname{font-size:11px;font-weight:700;color:#fff;
+        white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aname.is-new{color:#ff8844}
+.astats{font-size:9px;color:#a0aec0;margin-top:2px;white-space:nowrap}
+.apnl{font-size:9px;margin-top:1px;white-space:nowrap}
+.apnl.pos{color:#68f5a8}.apnl.neg{color:#ff8fa3}.apnl.zero{color:#718096}
+.drop-arrow{float:right;color:#718096;font-size:9px;line-height:1.3}
+
+/* ── AGENT HISTORY DROPDOWN ─────────────────────────────────────── */
+.agent-history{border-top:1px solid #2a3045;margin-top:6px;padding-top:6px;
+               max-height:220px;overflow-y:auto}
+.history-table td{padding:2px 5px;color:#f0f4ff;font-size:10px;border-bottom:1px solid #111}
+.history-table th{color:#fff;padding:2px 5px;font-size:8px;border-bottom:1px solid #1a1a1a;text-transform:uppercase;letter-spacing:1px}
+.win-row{background:rgba(104,245,168,0.05)}
+.loss-row{background:rgba(255,143,163,0.05)}
+.pnl-win{color:#68f5a8;font-weight:700}
+.pnl-loss{color:#ff8fa3;font-weight:700}
+.yes-side{color:#68f5a8}.no-side{color:#ff8fa3}
+.ticker-cell{color:#93c5fd;font-family:monospace;font-size:9px}
+.reason-cell{color:#a0aec0;font-size:9px;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── COMPACT ALERT ROWS ─────────────────────────────────────────── */
+.alert-row{padding:4px 10px;border-bottom:1px solid #0f0f0f;font-size:10px;
+           line-height:1.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+           font-family:'Courier New',monospace;cursor:default}
+.alert-row:hover{background:#0a0a0a}
+.alert-row.entry{color:#93c5fd}
+.alert-row.win{color:#68f5a8}
+.alert-row.loss{color:#ff8fa3}
+.alert-row.neutral{color:#a0aec0}
+#feed-empty{padding:10px 12px;color:#718096;font-size:10px}
+
+/* ── LOG ─────────────────────────────────────────────────────────── */
+.log-wrap{font-size:9px;line-height:1.6;max-height:200px;overflow-y:auto;
+          color:#a0aec0;padding:8px 10px}
 .log-line{white-space:pre-wrap;word-break:break-all}
-.log-line.sig{color:#68f5a8}.log-line.err{color:#ff8fa3}.log-line.warn{color:#fcd34d}
-.log-line.oil{color:#ff8844}.log-line.axiom{color:#93c5fd}
+.log-line.sig{color:#68f5a8}.log-line.err{color:#ff8fa3}
+.log-line.warn{color:#fcd34d}.log-line.oil{color:#ff8844}.log-line.axiom{color:#93c5fd}
 
-/* Scores */
-.pnl-pos{color:#68f5a8}.pnl-neg{color:#ff8fa3}
-.rank-1{color:#ffd700}.rank-2{color:#c4b5fd}.rank-3{color:#cd7f32}
-
-/* Vp */
-.vp-bar-wrap{background:#111;border-radius:2px;height:4px;margin-top:4px;width:100%}
-.vp-bar{background:#93c5fd;height:4px;border-radius:2px}
-
-/* divider */
-.sep{border:none;border-top:1px solid #1a1a1a;margin:8px 0}
+/* ── MOBILE ──────────────────────────────────────────────────────── */
+@media (max-width:900px){
+  .fi-bar{grid-template-columns:repeat(2,1fr)}
+  .row{flex-direction:column}
+  .col-macro,.col-roster,.col-lb,.col-trades{min-width:0!important;width:100%}
+  .agent-grid{grid-template-columns:repeat(3,1fr)}
+}
+@media (max-width:600px){
+  body{padding:6px}
+  .fi-bar{grid-template-columns:repeat(2,1fr)}
+  .agent-grid{grid-template-columns:repeat(2,1fr)}
+  .hdr h1{font-size:11px}
+}
+@media (max-width:400px){
+  .fi-bar{grid-template-columns:1fr}
+}
 </style>
 </head>
 <body>
 
+<!-- ── HEADER ────────────────────────────────────────────────────── -->
 <div class="hdr">
   <h1>🎯 NFE WAR ROOM × SYNDICATE ENGINE
     <span class="{{ 'badge-live' if mode == 'LIVE' else 'badge-paper' }}">{{ mode }}</span>
     {% if mode == 'PAPER' %}<span class="badge-paper" style="margin-left:4px">[PAPER — NO REAL MONEY]</span>{% endif %}
   </h1>
-  <div class="sub">{{ now_utc }} | {{ total_trades }} closed trades | Session P&amp;L:
+  <div class="sub">{{ now_utc }} | {{ total_trades }} closed trades | Net P&L:
     <span class="{{ 'g' if total_pnl >= 0 else 'r' }}">{{ '+' if total_pnl >= 0 else '' }}${{ '%.2f'|format(total_pnl) }}</span>
-    | Exposure cap: ${{ max_exposure }} | Auto-refresh 60s
+    | Cap: ${{ max_exposure }} | Refresh: 60s
   </div>
 </div>
 
+<!-- ── FLEET INTELLIGENCE BAR ────────────────────────────────────── -->
+{% set fi = fleet_intel %}
+{% set td = fi.tier_distribution %}
+<div class="fi-bar">
+  <div class="fi-col">
+    <div class="fi-label">Session</div>
+    <div class="fi-val b">{{ fi.closed_trades }} closed</div>
+    <div class="fi-val {{ 'g' if fi.session_pnl >= 0 else 'r' }}">{{ '+' if fi.session_pnl >= 0 else '' }}${{ '%.2f'|format(fi.session_pnl) }} P&L</div>
+    <div class="fi-val {{ 'y' if fi.open_positions > 0 else 'dim' }}">{{ fi.open_positions }} open / ${{ '%.0f'|format(fi.current_exposure) }} exp</div>
+  </div>
+  <div class="fi-col">
+    <div class="fi-label">24H Rolling</div>
+    <div class="fi-val">{{ fi.trades_24h }}t &nbsp;/<span class="{{ 'g' if fi.winrate_24h >= 60 else 'y' if fi.winrate_24h >= 45 else ('r' if fi.trades_24h > 0 else 'dim') }}"> {{ fi.winrate_24h }}% WR</span></div>
+    <div class="fi-val {{ 'g' if fi.pnl_24h >= 0 else 'r' }}">{{ '+' if fi.pnl_24h >= 0 else '' }}${{ '%.2f'|format(fi.pnl_24h) }} P&L</div>
+    <div class="fi-val dim" id="fi-live" style="font-size:9px">—</div>
+  </div>
+  <div class="fi-col">
+    <div class="fi-label">Tiers</div>
+    <div class="fi-tier-chips">
+      {% if td.elite %}<span class="fi-chip elite">💎 {{ td.elite|length }}E</span>{% endif %}
+      {% if td.proven %}<span class="fi-chip proven">🏆 {{ td.proven|length }}P</span>{% endif %}
+      {% if td.qualified %}<span class="fi-chip qualified">🥈 {{ td.qualified|length }}Q</span>{% endif %}
+      {% if td.probation %}<span class="fi-chip probation">🥉 {{ td.probation|length }}R</span>{% endif %}
+      {% if not td.elite and not td.proven and not td.qualified and not td.probation %}<span class="dim" style="font-size:9px">No data</span>{% endif %}
+    </div>
+    {% set earners = (td.elite|length) + (td.proven|length) + (td.qualified|length) %}
+    {% if earners > 0 %}
+    <div class="fi-val dim" style="font-size:9px;margin-top:3px">{{ earners }} agents above probation</div>
+    {% endif %}
+  </div>
+  <div class="fi-col">
+    <div class="fi-label">Promotion Watch</div>
+    {% if fi.promotion_watch %}
+    {% for pw in fi.promotion_watch[:3] %}
+    <div class="fi-val" style="font-size:9px;line-height:1.6">
+      <span class="y">{{ pw.agent }}</span><span class="dim"> → {{ pw.next_tier }} | {{ pw.trades_needed }}t/{{ pw.wins_needed }}w</span>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="fi-val dim" style="font-size:9px">None near threshold</div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── ROW 1: Macro Signals + Agent Roster ───────────────────────── -->
 <div class="row">
-  <!-- MACRO SIGNALS -->
-  <div class="col">
-    <div class="sec">
-      <h2>🌍 Macro Signals</h2>
-      <table>
+  <div class="panel col-macro">
+    <div class="panel-hdr">🌍 Macro Signals</div>
+    <div class="panel-body">
+      <table class="macro-table">
         {% for row in macro_rows %}
         <tr>
-          <td class="ts signal-label">{{ row.label }}</td>
+          <td class="signal-label">{{ row.label }}</td>
           <td>
             {% set v = row.val|string %}
             {% set cls = v.split()[0] if v else '' %}
-            <span class="macro-val {{ cls }} signal-value">{{ v }}</span>
+            <span class="macro-val {{ cls }}">{{ v }}</span>
             {% if row.raw is not none %}<span class="ts"> ({{ '%.2f'|format(row.raw) if row.raw else '—' }})</span>{% endif %}
           </td>
         </tr>
@@ -128,111 +215,88 @@ tr:hover td{background:#131313}
     </div>
   </div>
 
-  <!-- VALIDATION STATUS -->
-  <div class="col">
-    <div class="sec">
-      <h2>📋 Validation Status</h2>
-      {% set threshold = vp.get('unlock_threshold_trades', 50) %}
-      {% set progress_pct = [[(total_trades / threshold * 100)|int, 0]|max, 100]|min %}
-      <div style="font-size:10px;line-height:1.8;color:#f0f4ff">
-        <div>Phase: <span class="{{ 'y' if vp.get('active') else 'g' }}">{{ 'ACTIVE' if vp.get('active') else 'COMPLETE' }}</span></div>
-        <div>Window: {{ vp.get('start_date', '—') }} → {{ vp.get('end_date', '—') }}</div>
-        <div>Benched: <span class="{{ 'r' if vp.get('benched_agents') else 'g' }}">{{ vp.get('benched_agents', [])|join(', ') or 'None' }}</span></div>
-        <div style="margin-top:6px">
-          Trades: <span class="{{ 'g' if total_trades >= threshold else 'y' }}">{{ total_trades }}</span> / {{ threshold }} unlock threshold
-        </div>
-        <div class="vp-bar-wrap"><div class="vp-bar" style="width:{{ progress_pct }}%"></div></div>
-        <div style="margin-top:6px;color:#718096">{{ progress_pct }}% to unlock</div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- AGENT ROSTER -->
-<div class="sec" style="margin-bottom:10px">
-  <h2>🤖 Agent Roster — 16 Agents</h2>
-  <div class="roster">
-    {% for agent in roster %}
-    <div class="tile {{ 'benched' if agent.benched else '' }} {{ 'new-agent' if agent.is_new else '' }}">
-      <div class="agent-header" onclick="toggleHistory('{{ agent.name }}')">
-        <div class="agent-name {{ 'new-agent' if agent.is_new else '' }}">
+  <div class="panel col-roster">
+    <div class="panel-hdr">🤖 Agent Roster — {{ roster|length }} Agents</div>
+    <div class="agent-grid">
+      {% for agent in roster %}
+      <div class="agent-card {{ 'benched' if agent.benched }} {{ 'new-agent' if agent.is_new }}"
+           onclick="toggleHistory('{{ agent.name }}')">
+        <div class="aname {{ 'is-new' if agent.is_new }}">
           {{ agent.name }}{% if agent.is_new %} ⭐{% endif %}{% if agent.benched %} 🔒{% endif %}
-          {% if agent.trades > 0 %}<span class="dropdown-arrow">▼</span>{% endif %}
+          {% if agent.trades > 0 %}<span class="drop-arrow">▼</span>{% endif %}
         </div>
-        <div class="stats">
-          {% if agent.trades > 0 %}{{ agent.win_pct }}% win | {{ agent.trades }}t{% else %}0 trades{% endif %}
-        </div>
-        <div class="pnl {{ 'pos' if agent.pnl > 0 else 'neg' if agent.pnl < 0 else 'zero' }}">
+        <div class="astats">{% if agent.trades > 0 %}{{ agent.win_pct }}% | {{ agent.trades }}t{% else %}<span class="dim">0 trades</span>{% endif %}</div>
+        <div class="apnl {{ 'pos' if agent.pnl > 0 else 'neg' if agent.pnl < 0 else 'zero' }}">
           {{ '+' if agent.pnl >= 0 else '' }}${{ '%.2f'|format(agent.pnl) }}
         </div>
-      </div>
-      {% if agent.history %}
-      <div class="agent-history" id="history-{{ agent.name }}" style="display:none">
-        <table class="history-table">
-          <thead>
-            <tr><th>CONTRACT</th><th>SIDE</th><th>ENTRY</th><th>EXIT</th><th>P&amp;L</th><th>REASON</th></tr>
-          </thead>
-          <tbody>
-          {% for trade in agent.history %}
+        {% if agent.history %}
+        <div class="agent-history" id="history-{{ agent.name }}" style="display:none">
+          <table class="history-table">
+            <thead><tr><th>Contract</th><th>Side</th><th>In</th><th>Out</th><th>P&L</th><th>Why</th></tr></thead>
+            <tbody>
+            {% for trade in agent.history %}
             <tr class="{{ 'win-row' if trade.pnl > 0 else 'loss-row' }}">
               <td class="ticker-cell" title="{{ trade.ticker }}">{{ trade.ticker_short }}</td>
               <td class="{{ 'yes-side' if trade.side == 'yes' else 'no-side' }}">{{ trade.direction }}</td>
-              <td>{{ trade.entry }}¢</td>
-              <td>{{ trade.exit }}¢</td>
+              <td>{{ trade.entry }}¢</td><td>{{ trade.exit }}¢</td>
               <td class="{{ 'pnl-win' if trade.pnl > 0 else 'pnl-loss' }}">{{ trade.pnl_str }}</td>
               <td class="reason-cell">{{ trade.reason }}</td>
             </tr>
-          {% endfor %}
-          </tbody>
-        </table>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
       </div>
-      {% endif %}
+      {% endfor %}
     </div>
-    {% endfor %}
   </div>
 </div>
 
+<!-- ── ROW 2: Leaderboard + Recent Trades ────────────────────────── -->
 <div class="row">
-  <!-- LEADERBOARD -->
-  <div class="col">
-    <div class="sec">
-      <h2>🏆 Leaderboard (by P&amp;L)</h2>
+  <div class="panel col-lb">
+    <div class="panel-hdr">🏆 Leaderboard (Net P&L)</div>
+    <div class="panel-body">
       <table>
-        <tr><th>#</th><th>Agent</th><th>P&amp;L</th><th>Win%</th><th>Trades</th></tr>
+        <tr><th>#</th><th>Agent</th><th>Net P&L</th><th>Win%</th><th>Trades</th></tr>
         {% for a in leaderboard[:10] %}
         <tr>
           <td class="{{ 'rank-1' if loop.index0==0 else 'rank-2' if loop.index0==1 else 'rank-3' if loop.index0==2 else 'dim' }}">{{ loop.index }}</td>
-          <td class="{{ 'g' if a.pnl > 0 else 'r' if a.pnl < 0 else 'dim' }}">{{ a.name }}</td>
+          <td class="{{ 'g' if a.pnl > 0 else 'r' if a.pnl < 0 else 'dim' }}" style="font-size:11px">{{ a.name }}</td>
           <td class="{{ 'pnl-pos' if a.pnl >= 0 else 'pnl-neg' }}">{{ '+' if a.pnl >= 0 else '' }}${{ '%.2f'|format(a.pnl) }}</td>
           <td class="{{ 'g' if a.win_pct >= 60 else 'y' if a.win_pct >= 45 else 'r' }}">{{ a.win_pct|int }}%</td>
           <td class="ts">{{ a.trades }}</td>
         </tr>
         {% endfor %}
+        {% if not leaderboard %}
+        <tr><td colspan="5" class="dim" style="padding:8px">No trades yet.</td></tr>
+        {% endif %}
       </table>
     </div>
   </div>
 
-  <!-- RECENT TRADES -->
-  <div class="col-wide">
-    <div class="sec">
-      <h2>📊 Recent Trades</h2>
+  <div class="panel col-trades">
+    <div class="panel-hdr">📊 Recent Trades</div>
+    <div class="panel-body">
       {% if valid_from_ts %}
-      <div style="font-size:9px;color:#fcd34d;margin-bottom:6px">⚠ Trades ≤ ID {{ valid_from_id }} (pre-{{ valid_from_ts }}) have unreliable PNL — NO entry_price bug</div>
+      <div style="font-size:9px;color:#fcd34d;padding:0 6px 4px">⚠ Trades ≤ ID {{ valid_from_id }} (pre-{{ valid_from_ts }}) — unreliable PNL</div>
       {% endif %}
       <table>
-        <tr><th>#</th><th>Ticker</th><th>Agent</th><th>Side</th><th>Entry</th><th>Exit</th><th>P&amp;L</th><th>Reason</th></tr>
+        <tr><th>#</th><th>Ticker</th><th>Agent</th><th>Side</th><th>In</th><th>Out</th><th>Net P&L</th><th>Why</th></tr>
         {% for t in recent_trades %}
+        {% set disp_pnl = t.net_pnl if t.net_pnl is not none else (t.pnl or 0) %}
         <tr{% if t.pre_fix %} style="opacity:0.5" title="Pre-fix: PNL may be inaccurate"{% endif %}>
           <td class="dim" style="font-size:9px">{{ t.id }}{% if t.pre_fix %}<span style="color:#fcd34d"> ⚠</span>{% endif %}</td>
-          <td class="ts">{{ t.ticker[:22] }}</td>
-          <td class="{{ 'y' if t.agent_name == 'OIL' else '' }}">{{ t.agent_name or '—' }}</td>
-          <td class="{{ 'g' if t.side == 'yes' else 'r' }}">{{ (t.side or '—')|upper }}</td>
+          <td class="ts">{{ t.ticker[:18] }}</td>
+          <td class="{{ 'y' if t.agent_name == 'OIL' else '' }}" style="font-size:10px">{{ t.agent_name or '—' }}</td>
+          <td class="{{ 'g' if t.side == 'yes' else 'r' }}" style="font-size:10px">{{ (t.side or '—')|upper }}</td>
           <td class="ts">{{ t.display_entry_price }}¢</td>
           <td class="ts">{{ t.display_exit_price }}¢</td>
-          <td class="{{ 'pnl-pos' if (t.pnl or 0) >= 0 else 'pnl-neg' }}">
-            {{ t.pnl_sign }}${{ '%.3f'|format(t.pnl or 0) }}
+          <td class="{{ 'pnl-pos' if disp_pnl >= 0 else 'pnl-neg' }}" style="font-size:10px">
+            {{ '+' if disp_pnl >= 0 else '' }}${{ '%.2f'|format(disp_pnl) }}
           </td>
-          <td class="ts">{{ (t.exit_reason or '—')[:22] }}</td>
+          <td class="ts">{{ (t.exit_reason or '—')[:16] }}</td>
         </tr>
         {% endfor %}
         {% if not recent_trades %}
@@ -243,17 +307,53 @@ tr:hover td{background:#131313}
   </div>
 </div>
 
-<!-- LIVE SIGNAL FEED -->
-<div class="sec">
-  <h2>📡 Live Signal Feed (last 40 log lines)</h2>
+<!-- ── ROW 3: ECHO GRADES (collapsible, full width) ──────────────── -->
+<div class="panel">
+  <div class="panel-hdr clickable" onclick="togglePanel('echo')">
+    🧮 ECHO Grades
+    <span id="echo-arrow" style="float:right;font-weight:normal;color:#718096;text-transform:none;letter-spacing:0">▼</span>
+  </div>
+  <div id="echo-body" style="display:none;max-height:300px;overflow-y:auto">
+    <table style="font-size:10px">
+      <tr><th>Agent</th><th>Ticker</th><th>Net P&L</th><th>Grade</th></tr>
+      {% for t in recent_trades[:10] %}
+      {% set disp_pnl = t.net_pnl if t.net_pnl is not none else (t.pnl or 0) %}
+      <tr>
+        <td class="dim" style="font-size:10px">{{ t.agent_name or '—' }}</td>
+        <td class="ts">{{ (t.ticker or '')[-18:] }}</td>
+        <td class="{{ 'pnl-pos' if disp_pnl >= 0 else 'pnl-neg' }}">{{ '+' if disp_pnl >= 0 else '' }}${{ '%.2f'|format(disp_pnl) }}</td>
+        <td class="dim" style="font-size:9px">[ungraded]</td>
+      </tr>
+      {% endfor %}
+      {% if not recent_trades %}
+      <tr><td colspan="4" class="dim" style="padding:8px">No trades yet.</td></tr>
+      {% endif %}
+    </table>
+  </div>
+</div>
+
+<!-- ── ROW 4: LIVE ALERT FEED (compact single-line per alert) ─────── -->
+<div class="panel">
+  <div class="panel-hdr">
+    📟 Live Alert Feed
+    <span id="feed-age" style="float:right;font-weight:normal;color:#718096;font-size:9px;text-transform:none;letter-spacing:0"></span>
+  </div>
+  <div id="live-feed-wrap" style="max-height:400px;overflow-y:auto">
+    <div id="feed-empty" class="dim" style="padding:10px;font-size:10px">Loading...</div>
+  </div>
+</div>
+
+<!-- ── RAW LOG ────────────────────────────────────────────────────── -->
+<div class="panel">
+  <div class="panel-hdr">📡 Raw Log (last 40 lines)</div>
   <div class="log-wrap">
     {% for line in log_lines %}
     {% set lc = line|lower %}
     <div class="log-line
-      {{ 'sig' if 'signal submitted' in lc or 'signal:' in lc else
-         'oil' if '[oil]' in lc else
+      {{ 'sig'  if 'signal submitted' in lc or 'signal:' in lc else
+         'oil'  if '[oil]' in lc else
          'axiom' if '[axiom]' in lc else
-         'err' if 'error' in lc or 'failed' in lc else
+         'err'  if 'error' in lc or 'failed' in lc else
          'warn' if 'warning' in lc or 'benched' in lc else '' }}">{{ line }}</div>
     {% endfor %}
     {% if not log_lines %}<div class="dim">No log data available.</div>{% endif %}
@@ -261,11 +361,132 @@ tr:hover td{background:#131313}
 </div>
 
 <script>
+// ── Agent history toggle ────────────────────────────────────────────
 function toggleHistory(agentName) {
     var el = document.getElementById('history-' + agentName);
     if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
-</script>
 
+// ── Compact alert renderer ──────────────────────────────────────────
+// Parses e.text (multiline alert string) into a single-line display.
+// Full text available on hover via title attribute.
+function compactAlert(e) {
+    var ts = '';
+    if (e.timestamp) {
+        try {
+            var d = new Date(e.timestamp);
+            var h = d.getHours(), m = d.getMinutes();
+            ts = (h % 12 || 12) + ':' + (m < 10 ? '0' : '') + m + (h < 12 ? ' AM' : ' PM');
+        } catch(_) { ts = (e.timestamp || '').substring(11, 16) + 'Z'; }
+    }
+
+    // Strip border lines, parse key content lines from formatted alert text
+    var lines = (e.text || '').split('\n').map(function(l) { return l.trim(); })
+                              .filter(function(l) { return l && !/^━+$/.test(l); });
+
+    var outcome = '', desc = '', action = '', pnlLine = '', reasonLine = '';
+    for (var i = 0; i < lines.length; i++) {
+        var l = lines[i];
+        if (i === 0) { outcome = l.replace('[PAPER] ', '').replace('[LIVE] ', ''); }
+        if (l.indexOf('\uD83D\uDCDD') === 0 || l.indexOf('📝') === 0) {  // 📝
+            desc = l.slice(2).trim().substring(0, 46);
+        }
+        if (l.indexOf('💵') === 0 || l.indexOf('💰') === 0) {            // sell/buy line
+            action = l.slice(2).trim().substring(0, 32);
+        }
+        if (l.indexOf('💸') === 0) {                                       // gross/fees/net
+            pnlLine = l.slice(2).trim().substring(0, 40);
+        } else if ((l.indexOf('📈') === 0 || l.indexOf('📉') === 0) && !pnlLine) {
+            pnlLine = l.slice(2).trim().substring(0, 30);
+        }
+        if (l.indexOf('📋') === 0) {                                       // reason
+            reasonLine = l.slice(2).trim().replace(/^Reason:\s*/i, '').substring(0, 18);
+        }
+    }
+
+    var parts = [];
+    if (ts)         parts.push(ts);
+    if (outcome)    parts.push(outcome);
+    if (desc)       parts.push(desc);
+    if (action)     parts.push(action);
+    if (pnlLine)    parts.push(pnlLine);
+    if (reasonLine) parts.push(reasonLine);
+    return parts.join(' | ') || (e.agent + ' ' + e.ticker);
+}
+
+// ── Live Feed renderer ──────────────────────────────────────────────
+function renderFeed(entries) {
+    var wrap  = document.getElementById('live-feed-wrap');
+    var empty = document.getElementById('feed-empty');
+    if (!entries || entries.length === 0) {
+        if (empty) { empty.style.display = ''; empty.textContent = 'No alerts yet — waiting for first trade.'; }
+        return;
+    }
+    if (empty) empty.style.display = 'none';
+
+    // Remove existing alert rows, keep #feed-empty
+    Array.from(wrap.children).forEach(function(c) {
+        if (c.id !== 'feed-empty') wrap.removeChild(c);
+    });
+
+    entries.forEach(function(e) {
+        var row = document.createElement('div');
+        var cls = 'alert-row';
+        if (e.type === 'entry')                           cls += ' entry';
+        else if (e.pnl !== null && e.pnl !== undefined && e.pnl >= 0) cls += ' win';
+        else if (e.pnl !== null && e.pnl !== undefined)  cls += ' loss';
+        else                                              cls += ' neutral';
+        row.className = cls;
+        row.title = e.text || '';         // full alert text on hover
+        row.textContent = compactAlert(e);
+        wrap.appendChild(row);
+    });
+}
+
+function pollFeed() {
+    fetch('/api/live_feed')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            renderFeed(data);
+            var age = document.getElementById('feed-age');
+            if (age) age.textContent = '\u2022 ' + new Date().toLocaleTimeString();
+            var li = document.getElementById('fi-live');
+            if (li) { li.textContent = 'feed live \u25cf'; li.style.color = '#68f5a8'; }
+        })
+        .catch(function() {
+            var li = document.getElementById('fi-live');
+            if (li) { li.textContent = 'feed offline'; li.style.color = '#ff8fa3'; }
+        });
+}
+
+pollFeed();
+setInterval(pollFeed, 10000);
+
+// ── Panel toggle with localStorage ─────────────────────────────────
+function togglePanel(name) {
+    var body  = document.getElementById(name + '-body');
+    var arrow = document.getElementById(name + '-arrow');
+    if (!body) return;
+    var opening = body.style.display === 'none';
+    body.style.display = opening ? 'block' : 'none';
+    if (arrow) arrow.textContent = opening ? '\u25b2' : '\u25bc';
+    try { localStorage.setItem('panel_' + name, opening ? 'open' : 'closed'); } catch(e_) {}
+}
+
+// Restore panel states on load
+(function() {
+    var defaults = { echo: 'closed' };
+    Object.keys(defaults).forEach(function(name) {
+        var saved = null;
+        try { saved = localStorage.getItem('panel_' + name); } catch(e_) {}
+        var state = saved || defaults[name];
+        var body  = document.getElementById(name + '-body');
+        var arrow = document.getElementById(name + '-arrow');
+        if (!body) return;
+        body.style.display = (state === 'open') ? 'block' : 'none';
+        if (arrow) arrow.textContent = (state === 'open') ? '\u25b2' : '\u25bc';
+    });
+})();
+</script>
 </body>
 </html>

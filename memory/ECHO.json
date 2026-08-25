@@ -11,5 +11,1438 @@
   "loss_streak": 0,
   "benched": false,
   "benched_until": null,
-  "_description": "Decision grader \u2014 grades every trade, surfaces warnings"
+  "_description": "Decision grader \u2014 grades every trade, surfaces warnings",
+  "pattern_grades": {
+    "DELTA|KXPGATOUR|40-60": [
+      "C"
+    ],
+    "AXIOM|KXPGATOUR|60-80": [
+      "C",
+      "C"
+    ],
+    "SHADOW|KXPGATOUR|60-80": [
+      "C",
+      "C"
+    ],
+    "ACE|KXATPMATCH|40-60": [
+      "D"
+    ],
+    "PHOENIX|KXATPMATCH|20-40": [
+      "D",
+      "D"
+    ],
+    "ACE|KXATPMATCH|60-80": [
+      "C",
+      "D",
+      "D"
+    ],
+    "GHOST|KXATPMATCH|0-20": [
+      "D",
+      "C",
+      "D"
+    ],
+    "PHOENIX|KXATPMATCH|40-60": [
+      "D"
+    ],
+    "ACE|KXATPMATCH|20-40": [
+      "D"
+    ],
+    "ACE|KXWTAMATCH|60-80": [
+      "D"
+    ],
+    "AXIOM|KXBTCD|60-80": [
+      "C",
+      "C",
+      "C",
+      "C",
+      "C",
+      "C",
+      "C",
+      "C",
+      "C",
+      "A",
+      "D",
+      "B",
+      "F",
+      "B",
+      "A",
+      "F"
+    ],
+    "AXIOM|KXBTCD|0-20": [
+      "B",
+      "B",
+      "B",
+      "B"
+    ],
+    "AXIOM|KXPGATOUR|80-100": [
+      "A"
+    ],
+    "AXIOM|KXBTCD|20-40": [
+      "F",
+      "B"
+    ],
+    "AXIOM|KXBTCD|40-60": [
+      "F"
+    ],
+    "AXIOM|KXBTCD|80-100": [
+      "B"
+    ],
+    "DELTA|KXBTCD|40-60": [
+      "B",
+      "B",
+      "A",
+      "B",
+      "A",
+      "B",
+      "D",
+      "A",
+      "A",
+      "B",
+      "F",
+      "F",
+      "F"
+    ],
+    "DELTA|KXBTCD|60-80": [
+      "B",
+      "B",
+      "A",
+      "A",
+      "B",
+      "F",
+      "A",
+      "A",
+      "A",
+      "A",
+      "F",
+      "A",
+      "A",
+      "B",
+      "F"
+    ],
+    "DELTA|KXBTCD|20-40": [
+      "B",
+      "B",
+      "B",
+      "A",
+      "D",
+      "D",
+      "B",
+      "F",
+      "A",
+      "A"
+    ],
+    "CIPHER|KXBTCD|60-80": [
+      "B",
+      "B",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "F",
+      "F",
+      "A",
+      "A",
+      "F",
+      "A",
+      "B",
+      "F",
+      "A",
+      "F",
+      "A",
+      "A"
+    ],
+    "DIAMOND|KXBTCD|60-80": [
+      "B",
+      "F"
+    ],
+    "AXIOM|KXETHD|60-80": [
+      "F"
+    ],
+    "DIAMOND|KXETHD|60-80": [
+      "A"
+    ],
+    "AXIOM|KXPGATOUR|20-40": [
+      "F"
+    ]
+  },
+  "agent_grades": {
+    "DELTA": [
+      "C",
+      "B",
+      "B",
+      "B",
+      "B",
+      "A",
+      "B",
+      "B",
+      "B",
+      "A",
+      "A",
+      "A",
+      "B",
+      "B",
+      "F",
+      "A",
+      "D",
+      "A",
+      "B",
+      "A",
+      "A",
+      "A",
+      "F",
+      "A",
+      "A",
+      "A",
+      "D",
+      "D",
+      "A",
+      "B",
+      "B",
+      "B",
+      "F",
+      "F",
+      "F",
+      "F",
+      "A",
+      "F",
+      "A"
+    ],
+    "AXIOM": [
+      "C",
+      "C",
+      "C",
+      "C",
+      "C",
+      "C",
+      "C",
+      "C",
+      "C",
+      "C",
+      "C",
+      "A",
+      "B",
+      "B",
+      "B",
+      "A",
+      "D",
+      "B",
+      "F",
+      "B",
+      "F",
+      "B",
+      "B",
+      "F",
+      "B",
+      "A",
+      "F",
+      "F",
+      "F"
+    ],
+    "SHADOW": [
+      "C",
+      "C"
+    ],
+    "ACE": [
+      "D",
+      "C",
+      "D",
+      "D",
+      "D",
+      "D"
+    ],
+    "PHOENIX": [
+      "D",
+      "D",
+      "D"
+    ],
+    "GHOST": [
+      "D",
+      "C",
+      "D"
+    ],
+    "CIPHER": [
+      "B",
+      "B",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "F",
+      "F",
+      "A",
+      "A",
+      "F",
+      "A",
+      "B",
+      "F",
+      "A",
+      "F",
+      "A",
+      "A"
+    ],
+    "DIAMOND": [
+      "B",
+      "F",
+      "A"
+    ]
+  },
+  "grade_records": [
+    {
+      "grade": "C",
+      "agent": "DELTA",
+      "ticker": "KXPGATOUR-RBH26-JSPI",
+      "pnl": 2.952,
+      "pattern": "DELTA|KXPGATOUR|40-60",
+      "reason": "Low edge (0.0%), won $2.95 \u2014 lucky, but process was weak.",
+      "lesson": "Review DELTA KXPGATOUR signals \u2014 winning without clear edge is not sustainable.",
+      "timestamp": "2026-04-13T00:16:50Z"
+    },
+    {
+      "grade": "C",
+      "agent": "AXIOM",
+      "ticker": "KXPGATOUR-RBH26-SSCH",
+      "pnl": 2.24,
+      "pattern": "AXIOM|KXPGATOUR|60-80",
+      "reason": "Low edge (0.0%), won $2.24 \u2014 lucky, but process was weak.",
+      "lesson": "Review AXIOM KXPGATOUR signals \u2014 winning without clear edge is not sustainable.",
+      "timestamp": "2026-04-13T04:01:51Z"
+    },
+    {
+      "grade": "C",
+      "agent": "SHADOW",
+      "ticker": "KXPGATOUR-RBH26-SSCH",
+      "pnl": 2.24,
+      "pattern": "SHADOW|KXPGATOUR|60-80",
+      "reason": "Low edge (0.0%), won $2.24 \u2014 lucky, but process was weak.",
+      "lesson": "Review SHADOW KXPGATOUR signals \u2014 winning without clear edge is not sustainable.",
+      "timestamp": "2026-04-13T04:02:22Z"
+    },
+    {
+      "grade": "C",
+      "agent": "SHADOW",
+      "ticker": "KXPGATOUR-RBH26-SSCH",
+      "pnl": 2.24,
+      "pattern": "SHADOW|KXPGATOUR|60-80",
+      "reason": "Low edge (0.0%), won $2.24 \u2014 lucky, but process was weak.",
+      "lesson": "Review SHADOW KXPGATOUR signals \u2014 winning without clear edge is not sustainable.",
+      "timestamp": "2026-04-13T04:02:53Z"
+    },
+    {
+      "grade": "C",
+      "agent": "AXIOM",
+      "ticker": "KXPGATOUR-RBH26-SSCH",
+      "pnl": 2.34,
+      "pattern": "AXIOM|KXPGATOUR|60-80",
+      "reason": "Low edge (0.0%), won $2.34 \u2014 lucky, but process was weak.",
+      "lesson": "Review AXIOM KXPGATOUR signals \u2014 winning without clear edge is not sustainable.",
+      "timestamp": "2026-04-13T04:16:21Z"
+    },
+    {
+      "grade": "D",
+      "agent": "ACE",
+      "ticker": "KXATPMATCH-26APR12MARTSI-MAR",
+      "pnl": -0.54,
+      "pattern": "ACE|KXATPMATCH|40-60",
+      "reason": "Low edge (0.0%), lost $-0.54 \u2014 poor process and poor outcome.",
+      "lesson": "ACE KXATPMATCH 40-60: edge was insufficient. Consider raising minimum threshold.",
+      "timestamp": "2026-04-13T09:15:37Z"
+    },
+    {
+      "grade": "D",
+      "agent": "PHOENIX",
+      "ticker": "KXATPMATCH-26APR13VANHUE-HUE",
+      "pnl": -2.4,
+      "pattern": "PHOENIX|KXATPMATCH|20-40",
+      "reason": "Low edge (0.0%), lost $-2.40 \u2014 poor process and poor outcome.",
+      "lesson": "PHOENIX KXATPMATCH 20-40: edge was insufficient. Consider raising minimum threshold.",
+      "timestamp": "2026-04-13T09:40:08Z"
+    },
+    {
+      "grade": "C",
+      "agent": "ACE",
+      "ticker": "KXATPMATCH-26APR13VANHUE-VAN",
+      "pnl": 0.91,
+      "pattern": "ACE|KXATPMATCH|60-80",
+      "reason": "Low edge (0.0%), won $0.91 \u2014 lucky, but process was weak.",
+      "lesson": "Review ACE KXATPMATCH signals \u2014 winning without clear edge is not sustainable.",
+      "timestamp": "2026-04-13T10:10:38Z"
+    },
+    {
+      "grade": "D",
+      "agent": "ACE",
+      "ticker": "KXATPMATCH-26APR12BUSMOU-MOU",
+      "pnl": -0.27,
+      "pattern": "ACE|KXATPMATCH|60-80",
+      "reason": "Low edge (0.0%), lost $-0.27 \u2014 poor process and poor outcome.",
+      "lesson": "ACE KXATPMATCH 60-80: edge was insufficient. Consider raising minimum threshold.",
+      "timestamp": "2026-04-13T10:31:39Z"
+    },
+    {
+      "grade": "D",
+      "agent": "PHOENIX",
+      "ticker": "KXATPMATCH-26APR12BUSMOU-BUS",
+      "pnl": -1.47,
+      "pattern": "PHOENIX|KXATPMATCH|20-40",
+      "reason": "Low edge (0.0%), lost $-1.47 \u2014 poor process and poor outcome.",
+      "lesson": "PHOENIX KXATPMATCH 20-40: edge was insufficient. Consider raising minimum threshold.",
+      "timestamp": "2026-04-13T10:32:09Z"
+    },
+    {
+      "grade": "D",
+      "agent": "GHOST",
+      "ticker": "KXATPMATCH-26APR12RINMIC-MIC",
+      "pnl": -1.17,
+      "pattern": "GHOST|KXATPMATCH|0-20",
+      "reason": "Low edge (0.0%), lost $-1.17 \u2014 poor process and poor outcome.",
+      "lesson": "GHOST KXATPMATCH 0-20: edge was insufficient. Consider raising minimum threshold.",
+      "timestamp": "2026-04-13T10:36:40Z"
+    },
+    {
+      "grade": "D",
+      "agent": "PHOENIX",
+      "ticker": "KXATPMATCH-26APR12MARTSI-MAR",
+      "pnl": -0.54,
+      "pattern": "PHOENIX|KXATPMATCH|40-60",
+      "reason": "Low edge (0.0%), lost $-0.54 \u2014 poor process and poor outcome.",
+      "lesson": "PHOENIX KXATPMATCH 40-60: edge was insufficient. Consider raising minimum threshold.",
+      "timestamp": "2026-04-13T11:53:11Z"
+    },
+    {
+      "grade": "C",
+      "agent": "GHOST",
+      "ticker": "KXATPMATCH-26APR13OPEQUI-OPE",
+      "pnl": 1.54,
+      "pattern": "GHOST|KXATPMATCH|0-20",
+      "reason": "Low edge (0.0%), won $1.54 \u2014 lucky, but process was weak.",
+      "lesson": "Review GHOST KXATPMATCH signals \u2014 winning without clear edge is not sustainable.",
+      "timestamp": "2026-04-13T14:02:41Z"
+    },
+    {
+      "grade": "D",
+      "agent": "ACE",
+      "ticker": "KXATPMATCH-26APR12NORWAW-WAW",
+      "pnl": -1.3,
+      "pattern": "ACE|KXATPMATCH|20-40",
+      "reason": "Low edge (0.0%), lost $-1.30 \u2014 poor process and poor outcome.",
+      "lesson": "ACE KXATPMATCH 20-40: edge was insufficient. Consider raising minimum threshold.",
+      "timestamp": "2026-04-13T14:19:49Z"
+    },
+    {
+      "grade": "D",
+      "agent": "ACE",
+      "ticker": "KXATPMATCH-26APR12NORWAW-NOR",
+      "pnl": -0.1,
+      "pattern": "ACE|KXATPMATCH|60-80",
+      "reason": "Low edge (0.0%), lost $-0.10 \u2014 poor process and poor outcome.",
+      "lesson": "ACE KXATPMATCH 60-80: edge was insufficient. Consider raising minimum threshold.",
+      "timestamp": "2026-04-13T14:46:12Z"
+    },
+    {
+      "grade": "D",
+      "agent": "GHOST",
+      "ticker": "KXATPMATCH-26APR13DEOFN-OFN",
+      "pnl": -0.75,
+      "pattern": "GHOST|KXATPMATCH|0-20",
+      "reason": "Low edge (0.0%), lost $-0.75 \u2014 poor process and poor outcome.",
+      "lesson": "GHOST KXATPMATCH 0-20: edge was insufficient. Consider raising minimum threshold.",
+      "timestamp": "2026-04-14T10:57:55Z"
+    },
+    {
+      "grade": "D",
+      "agent": "ACE",
+      "ticker": "KXWTAMATCH-26APR13OSTAND-AND",
+      "pnl": -0.03,
+      "pattern": "ACE|KXWTAMATCH|60-80",
+      "reason": "Low edge (0.0%), lost $-0.03 \u2014 poor process and poor outcome.",
+      "lesson": "ACE KXWTAMATCH 60-80: edge was insufficient. Consider raising minimum threshold.",
+      "timestamp": "2026-04-14T16:03:16Z"
+    },
+    {
+      "grade": "C",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1717-T75499.99",
+      "pnl": 1.74,
+      "pattern": "AXIOM|KXBTCD|60-80",
+      "reason": "Low edge (0.0%), won $1.74 \u2014 lucky, but process was weak.",
+      "lesson": "Review AXIOM KXBTCD signals \u2014 winning without clear edge is not sustainable.",
+      "timestamp": "2026-04-15T18:32:57Z"
+    },
+    {
+      "grade": "C",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1515-T74199.99",
+      "pnl": 0.68,
+      "pattern": "AXIOM|KXBTCD|60-80",
+      "reason": "Low edge (0.0%), won $0.68 \u2014 lucky, but process was weak.",
+      "lesson": "Review AXIOM KXBTCD signals \u2014 winning without clear edge is not sustainable.",
+      "timestamp": "2026-04-15T18:48:29Z"
+    },
+    {
+      "grade": "C",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1517-T73999.99",
+      "pnl": 0.7,
+      "pattern": "AXIOM|KXBTCD|60-80",
+      "reason": "Low edge (0.0%), won $0.70 \u2014 lucky, but process was weak.",
+      "lesson": "Review AXIOM KXBTCD signals \u2014 winning without clear edge is not sustainable.",
+      "timestamp": "2026-04-15T19:04:30Z"
+    },
+    {
+      "grade": "C",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1517-T74749.99",
+      "pnl": 0.96,
+      "pattern": "AXIOM|KXBTCD|60-80",
+      "reason": "Low edge (0.0%), won $0.96 \u2014 lucky, but process was weak.",
+      "lesson": "Review AXIOM KXBTCD signals \u2014 winning without clear edge is not sustainable.",
+      "timestamp": "2026-04-15T19:06:01Z"
+    },
+    {
+      "grade": "C",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1717-T75999.99",
+      "pnl": 1.9,
+      "pattern": "AXIOM|KXBTCD|60-80",
+      "reason": "Low edge (0.0%), won $1.90 \u2014 lucky, but process was weak.",
+      "lesson": "Review AXIOM KXBTCD signals \u2014 winning without clear edge is not sustainable.",
+      "timestamp": "2026-04-15T19:10:02Z"
+    },
+    {
+      "grade": "C",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1717-T75999.99",
+      "pnl": 1.68,
+      "pattern": "AXIOM|KXBTCD|60-80",
+      "reason": "Low edge (0.0%), won $1.68 \u2014 lucky, but process was weak.",
+      "lesson": "Review AXIOM KXBTCD signals \u2014 winning without clear edge is not sustainable.",
+      "timestamp": "2026-04-15T19:42:33Z"
+    },
+    {
+      "grade": "C",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1516-T74499.99",
+      "pnl": 0.98,
+      "pattern": "AXIOM|KXBTCD|60-80",
+      "reason": "Low edge (0.0%), won $0.98 \u2014 lucky, but process was weak.",
+      "lesson": "Review AXIOM KXBTCD signals \u2014 winning without clear edge is not sustainable.",
+      "timestamp": "2026-04-15T19:58:34Z"
+    },
+    {
+      "grade": "C",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1517-T75249.99",
+      "pnl": 1.74,
+      "pattern": "AXIOM|KXBTCD|60-80",
+      "reason": "Low edge (0.0%), won $1.74 \u2014 lucky, but process was weak.",
+      "lesson": "Review AXIOM KXBTCD signals \u2014 winning without clear edge is not sustainable.",
+      "timestamp": "2026-04-15T19:59:05Z"
+    },
+    {
+      "grade": "C",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1717-T75999.99",
+      "pnl": 1.62,
+      "pattern": "AXIOM|KXBTCD|60-80",
+      "reason": "Low edge (0.0%), won $1.62 \u2014 lucky, but process was weak.",
+      "lesson": "Review AXIOM KXBTCD signals \u2014 winning without clear edge is not sustainable.",
+      "timestamp": "2026-04-15T20:15:06Z"
+    },
+    {
+      "grade": "A",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1517-T74499.99",
+      "pnl": 0.88,
+      "pattern": "AXIOM|KXBTCD|60-80",
+      "reason": "Edge confirmed (28.0%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-15T20:32:37Z"
+    },
+    {
+      "grade": "B",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1518-T74799.99",
+      "pnl": 0.0,
+      "pattern": "AXIOM|KXBTCD|0-20",
+      "reason": "Edge confirmed (17.5%), small loss $0.00 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-15T21:38:05Z"
+    },
+    {
+      "grade": "B",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1518-T74999.99",
+      "pnl": 0.0,
+      "pattern": "AXIOM|KXBTCD|0-20",
+      "reason": "Edge confirmed (11.7%), small loss $0.00 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-15T21:43:06Z"
+    },
+    {
+      "grade": "B",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1518-T74999.99",
+      "pnl": 0.0,
+      "pattern": "AXIOM|KXBTCD|0-20",
+      "reason": "Edge confirmed (11.7%), small loss $0.00 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-15T21:44:07Z"
+    },
+    {
+      "grade": "A",
+      "agent": "AXIOM",
+      "ticker": "KXPGATOUR-RBH26-MFIT",
+      "pnl": 51.186,
+      "pattern": "AXIOM|KXPGATOUR|80-100",
+      "reason": "Edge confirmed (17.9%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-15T21:48:27Z"
+    },
+    {
+      "grade": "D",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1519-T74799.99",
+      "pnl": -0.715,
+      "pattern": "AXIOM|KXBTCD|60-80",
+      "reason": "Loss $-0.72 despite edge_pct=27.4% \u2014 review AXIOM edge calculation for KXBTCD.",
+      "lesson": "ALERT: AXIOM edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-15T22:25:49Z"
+    },
+    {
+      "grade": "B",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1519-T75499.99",
+      "pnl": -0.495,
+      "pattern": "AXIOM|KXBTCD|0-20",
+      "reason": "Edge confirmed (16.9%), small loss $-0.50 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-15T22:40:20Z"
+    },
+    {
+      "grade": "F",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1519-T75499.99",
+      "pnl": -2.64,
+      "pattern": "AXIOM|KXBTCD|20-40",
+      "reason": "Large loss $-2.64 despite edge_pct=16.9% \u2014 review AXIOM edge calculation for KXBTCD.",
+      "lesson": "ALERT: AXIOM edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-15T22:45:19Z"
+    },
+    {
+      "grade": "B",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1519-T75199.99",
+      "pnl": -0.055,
+      "pattern": "AXIOM|KXBTCD|20-40",
+      "reason": "Edge confirmed (28.1%), small loss $-0.06 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-15T22:45:20Z"
+    },
+    {
+      "grade": "F",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1519-T75199.99",
+      "pnl": -1.89,
+      "pattern": "AXIOM|KXBTCD|40-60",
+      "reason": "Large loss $-1.89 despite edge_pct=28.1% \u2014 review AXIOM edge calculation for KXBTCD.",
+      "lesson": "ALERT: AXIOM edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-15T22:47:21Z"
+    },
+    {
+      "grade": "B",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1520-T74599.99",
+      "pnl": -0.095,
+      "pattern": "AXIOM|KXBTCD|80-100",
+      "reason": "Edge confirmed (27.5%), small loss $-0.09 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-15T23:35:26Z"
+    },
+    {
+      "grade": "B",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1520-T74599.99",
+      "pnl": -0.44,
+      "pattern": "AXIOM|KXBTCD|60-80",
+      "reason": "Edge confirmed (27.5%), small loss $-0.44 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-15T23:45:52Z"
+    },
+    {
+      "grade": "B",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T74999.99",
+      "pnl": -0.32,
+      "pattern": "DELTA|KXBTCD|40-60",
+      "reason": "Edge confirmed (42.5%), small loss $-0.32 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-16T00:41:53Z"
+    },
+    {
+      "grade": "B",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T74999.99",
+      "pnl": -0.32,
+      "pattern": "DELTA|KXBTCD|40-60",
+      "reason": "Edge confirmed (42.5%), small loss $-0.32 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-16T00:41:57Z"
+    },
+    {
+      "grade": "F",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1521-T74699.99",
+      "pnl": -2.2,
+      "pattern": "AXIOM|KXBTCD|60-80",
+      "reason": "Large loss $-2.20 despite edge_pct=27.0% \u2014 review AXIOM edge calculation for KXBTCD.",
+      "lesson": "ALERT: AXIOM edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-16T00:52:28Z"
+    },
+    {
+      "grade": "B",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T74749.99",
+      "pnl": -0.4,
+      "pattern": "DELTA|KXBTCD|60-80",
+      "reason": "Edge confirmed (37.5%), small loss $-0.40 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-16T03:46:20Z"
+    },
+    {
+      "grade": "B",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T74749.99",
+      "pnl": -0.22,
+      "pattern": "DELTA|KXBTCD|60-80",
+      "reason": "Edge confirmed (37.5%), small loss $-0.22 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-16T03:47:02Z"
+    },
+    {
+      "grade": "B",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1601-T74899.99",
+      "pnl": -0.05,
+      "pattern": "AXIOM|KXBTCD|60-80",
+      "reason": "Edge confirmed (14.8%), small loss $-0.05 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-16T04:08:05Z"
+    },
+    {
+      "grade": "A",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T75499.99",
+      "pnl": 0.15,
+      "pattern": "DELTA|KXBTCD|40-60",
+      "reason": "Edge confirmed (37.5%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T04:13:24Z"
+    },
+    {
+      "grade": "B",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T74749.99",
+      "pnl": 0.0,
+      "pattern": "DELTA|KXBTCD|40-60",
+      "reason": "Edge confirmed (42.0%), small loss $0.00 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-16T04:18:55Z"
+    },
+    {
+      "grade": "B",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T75499.99",
+      "pnl": -0.06,
+      "pattern": "DELTA|KXBTCD|20-40",
+      "reason": "Edge confirmed (35.0%), small loss $-0.06 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-16T05:18:58Z"
+    },
+    {
+      "grade": "B",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T75499.99",
+      "pnl": -0.035,
+      "pattern": "DELTA|KXBTCD|20-40",
+      "reason": "Edge confirmed (35.5%), small loss $-0.04 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-16T05:18:59Z"
+    },
+    {
+      "grade": "A",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T73999.99",
+      "pnl": 0.2,
+      "pattern": "DELTA|KXBTCD|60-80",
+      "reason": "Edge confirmed (27.0%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T05:51:29Z"
+    },
+    {
+      "grade": "A",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T74749.99",
+      "pnl": 0.35,
+      "pattern": "DELTA|KXBTCD|40-60",
+      "reason": "Edge confirmed (44.0%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T05:56:14Z"
+    },
+    {
+      "grade": "A",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T74499.99",
+      "pnl": 0.06,
+      "pattern": "DELTA|KXBTCD|60-80",
+      "reason": "Edge confirmed (35.0%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T06:24:29Z"
+    },
+    {
+      "grade": "B",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T74749.99",
+      "pnl": 0.0,
+      "pattern": "DELTA|KXBTCD|60-80",
+      "reason": "Edge confirmed (39.0%), small loss $0.00 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-16T06:29:04Z"
+    },
+    {
+      "grade": "B",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T74999.99",
+      "pnl": -0.06,
+      "pattern": "DELTA|KXBTCD|40-60",
+      "reason": "Edge confirmed (46.5%), small loss $-0.06 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-16T06:40:06Z"
+    },
+    {
+      "grade": "B",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1617-T74499.99",
+      "pnl": -0.03,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (15.0%), small loss $-0.03 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-16T06:56:07Z"
+    },
+    {
+      "grade": "B",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1617-T74499.99",
+      "pnl": -0.03,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (15.0%), small loss $-0.03 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-16T06:56:18Z"
+    },
+    {
+      "grade": "F",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T73999.99",
+      "pnl": -1.1,
+      "pattern": "DELTA|KXBTCD|60-80",
+      "reason": "Large loss $-1.10 despite edge_pct=29.5% \u2014 review DELTA edge calculation for KXBTCD.",
+      "lesson": "ALERT: DELTA edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-16T13:54:10Z"
+    },
+    {
+      "grade": "A",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T72999.99",
+      "pnl": 0.33,
+      "pattern": "DELTA|KXBTCD|60-80",
+      "reason": "Edge confirmed (30.5%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T14:48:12Z"
+    },
+    {
+      "grade": "D",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T73749.99",
+      "pnl": -0.975,
+      "pattern": "DELTA|KXBTCD|40-60",
+      "reason": "Loss $-0.97 despite edge_pct=42.0% \u2014 review DELTA edge calculation for KXBTCD.",
+      "lesson": "ALERT: DELTA edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-16T14:48:12Z"
+    },
+    {
+      "grade": "A",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T73499.99",
+      "pnl": 0.225,
+      "pattern": "DELTA|KXBTCD|60-80",
+      "reason": "Edge confirmed (36.0%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T14:55:43Z"
+    },
+    {
+      "grade": "B",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T74499.99",
+      "pnl": -0.2,
+      "pattern": "DELTA|KXBTCD|20-40",
+      "reason": "Edge confirmed (27.5%), small loss $-0.20 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-16T15:11:44Z"
+    },
+    {
+      "grade": "A",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T73499.99",
+      "pnl": 0.58,
+      "pattern": "DELTA|KXBTCD|60-80",
+      "reason": "Edge confirmed (32.5%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T15:15:15Z"
+    },
+    {
+      "grade": "A",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T73999.99",
+      "pnl": 0.54,
+      "pattern": "DELTA|KXBTCD|60-80",
+      "reason": "Edge confirmed (36.5%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T15:56:43Z"
+    },
+    {
+      "grade": "A",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T74499.99",
+      "pnl": 0.345,
+      "pattern": "DELTA|KXBTCD|40-60",
+      "reason": "Edge confirmed (45.0%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T16:07:45Z"
+    },
+    {
+      "grade": "A",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1613-T74199.99",
+      "pnl": 0.34,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (17.3%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T16:50:46Z"
+    },
+    {
+      "grade": "F",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T74249.99",
+      "pnl": -1.375,
+      "pattern": "DELTA|KXBTCD|60-80",
+      "reason": "Large loss $-1.38 despite edge_pct=25.5% \u2014 review DELTA edge calculation for KXBTCD.",
+      "lesson": "ALERT: DELTA edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-16T16:56:18Z"
+    },
+    {
+      "grade": "A",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T74499.99",
+      "pnl": 0.805,
+      "pattern": "DELTA|KXBTCD|40-60",
+      "reason": "Edge confirmed (46.5%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T16:56:19Z"
+    },
+    {
+      "grade": "A",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1614-T73999.99",
+      "pnl": 0.765,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (15.0%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T17:34:20Z"
+    },
+    {
+      "grade": "A",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T73999.99",
+      "pnl": 0.04,
+      "pattern": "DELTA|KXBTCD|60-80",
+      "reason": "Edge confirmed (32.0%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T17:35:22Z"
+    },
+    {
+      "grade": "A",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1617-T73999.99",
+      "pnl": 0.39,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (22.1%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T17:44:53Z"
+    },
+    {
+      "grade": "A",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1617-T73749.99",
+      "pnl": 0.29,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (21.4%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T17:50:24Z"
+    },
+    {
+      "grade": "A",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1615-T74299.99",
+      "pnl": 0.54,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (27.6%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T18:22:55Z"
+    },
+    {
+      "grade": "A",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1615-T74099.99",
+      "pnl": 0.66,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (27.6%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T18:22:58Z"
+    },
+    {
+      "grade": "A",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T74749.99",
+      "pnl": 0.02,
+      "pattern": "DELTA|KXBTCD|20-40",
+      "reason": "Edge confirmed (25.5%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T18:35:31Z"
+    },
+    {
+      "grade": "A",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1617-T74249.99",
+      "pnl": 0.58,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (27.6%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T18:44:32Z"
+    },
+    {
+      "grade": "A",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR1617-T73999.99",
+      "pnl": 0.27,
+      "pattern": "AXIOM|KXBTCD|60-80",
+      "reason": "Edge confirmed (25.6%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T18:44:33Z"
+    },
+    {
+      "grade": "A",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1615-T74399.99",
+      "pnl": 0.62,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (32.1%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T18:44:34Z"
+    },
+    {
+      "grade": "A",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1614-T74299.99",
+      "pnl": 0.01,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (22.1%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T18:45:37Z"
+    },
+    {
+      "grade": "D",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T74749.99",
+      "pnl": -0.65,
+      "pattern": "DELTA|KXBTCD|20-40",
+      "reason": "Loss $-0.65 despite edge_pct=30.5% \u2014 review DELTA edge calculation for KXBTCD.",
+      "lesson": "ALERT: DELTA edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-16T18:55:08Z"
+    },
+    {
+      "grade": "D",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1617-T74999.99",
+      "pnl": -0.52,
+      "pattern": "DELTA|KXBTCD|20-40",
+      "reason": "Loss $-0.52 despite edge_pct=27.5% \u2014 review DELTA edge calculation for KXBTCD.",
+      "lesson": "ALERT: DELTA edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-16T19:00:39Z"
+    },
+    {
+      "grade": "A",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1616-T74699.99",
+      "pnl": 0.7,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (37.5%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T19:27:40Z"
+    },
+    {
+      "grade": "A",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1616-T74799.99",
+      "pnl": 1.785,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (37.5%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T19:33:10Z"
+    },
+    {
+      "grade": "A",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1617-T74749.99",
+      "pnl": 0.775,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (37.5%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T19:33:11Z"
+    },
+    {
+      "grade": "A",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1616-T75099.99",
+      "pnl": 1.12,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (43.9%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T19:44:12Z"
+    },
+    {
+      "grade": "A",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1617-T74999.99",
+      "pnl": 1.16,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (39.0%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T19:49:43Z"
+    },
+    {
+      "grade": "F",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1619-T74999.99",
+      "pnl": -2.24,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Large loss $-2.24 despite edge_pct=46.0% \u2014 review CIPHER edge calculation for KXBTCD.",
+      "lesson": "ALERT: CIPHER edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-16T22:21:33Z"
+    },
+    {
+      "grade": "F",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1619-T74899.99",
+      "pnl": -1.61,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Large loss $-1.61 despite edge_pct=46.0% \u2014 review CIPHER edge calculation for KXBTCD.",
+      "lesson": "ALERT: CIPHER edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-16T22:26:34Z"
+    },
+    {
+      "grade": "A",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1619-T74799.99",
+      "pnl": 1.32,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (46.0%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T22:48:06Z"
+    },
+    {
+      "grade": "A",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1717-T74499.99",
+      "pnl": 0.02,
+      "pattern": "DELTA|KXBTCD|60-80",
+      "reason": "Edge confirmed (37.5%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T23:11:37Z"
+    },
+    {
+      "grade": "A",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1620-T74999.99",
+      "pnl": 0.78,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (44.0%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-16T23:42:38Z"
+    },
+    {
+      "grade": "B",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1717-T74999.99",
+      "pnl": -0.36,
+      "pattern": "DELTA|KXBTCD|40-60",
+      "reason": "Edge confirmed (49.5%), small loss $-0.36 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-16T23:43:39Z"
+    },
+    {
+      "grade": "F",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1621-T75099.99",
+      "pnl": -1.28,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Large loss $-1.28 despite edge_pct=46.9% \u2014 review CIPHER edge calculation for KXBTCD.",
+      "lesson": "ALERT: CIPHER edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-17T00:09:41Z"
+    },
+    {
+      "grade": "A",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1717-T74499.99",
+      "pnl": 0.045,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (44.0%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-17T00:16:42Z"
+    },
+    {
+      "grade": "B",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1717-T75499.99",
+      "pnl": -0.045,
+      "pattern": "DELTA|KXBTCD|20-40",
+      "reason": "Edge confirmed (36.5%), small loss $-0.05 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-17T00:17:13Z"
+    },
+    {
+      "grade": "B",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1621-T74899.99",
+      "pnl": -0.24,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (46.9%), small loss $-0.24 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-17T00:25:44Z"
+    },
+    {
+      "grade": "B",
+      "agent": "DIAMOND",
+      "ticker": "KXBTCD-26APR1620-T76699.99",
+      "pnl": 0.0,
+      "pattern": "DIAMOND|KXBTCD|60-80",
+      "reason": "Edge confirmed (62.6%), small loss $0.00 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-17T00:37:15Z"
+    },
+    {
+      "grade": "F",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1622-T74899.99",
+      "pnl": -14.355,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Large loss $-14.36 despite edge_pct=39.7% \u2014 review CIPHER edge calculation for KXBTCD.",
+      "lesson": "ALERT: CIPHER edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-17T01:13:47Z"
+    },
+    {
+      "grade": "B",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1717-T74499.99",
+      "pnl": -0.045,
+      "pattern": "DELTA|KXBTCD|60-80",
+      "reason": "Edge confirmed (36.5%), small loss $-0.05 \u2014 likely bad luck, not bad decision.",
+      "lesson": null,
+      "timestamp": "2026-04-17T01:21:50Z"
+    },
+    {
+      "grade": "A",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1712-T77599.99",
+      "pnl": 13.7934,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (33.3%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-17T15:14:32Z"
+    },
+    {
+      "grade": "F",
+      "agent": "DIAMOND",
+      "ticker": "KXBTCD-26APR1712-T77599.99",
+      "pnl": -14.9036,
+      "pattern": "DIAMOND|KXBTCD|60-80",
+      "reason": "Large loss $-14.90 despite edge_pct=17.7% \u2014 review DIAMOND edge calculation for KXBTCD.",
+      "lesson": "ALERT: DIAMOND edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-17T15:52:34Z"
+    },
+    {
+      "grade": "F",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1717-T77999.99",
+      "pnl": -6.2448,
+      "pattern": "DELTA|KXBTCD|40-60",
+      "reason": "Large loss $-6.24 despite edge_pct=48.0% \u2014 review DELTA edge calculation for KXBTCD.",
+      "lesson": "ALERT: DELTA edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-17T15:58:35Z"
+    },
+    {
+      "grade": "F",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1717-T78499.99",
+      "pnl": -1.4076,
+      "pattern": "DELTA|KXBTCD|20-40",
+      "reason": "Large loss $-1.41 despite edge_pct=26.5% \u2014 review DELTA edge calculation for KXBTCD.",
+      "lesson": "ALERT: DELTA edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-17T16:18:10Z"
+    },
+    {
+      "grade": "F",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1817-T77249.99",
+      "pnl": -48.378,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Large loss $-48.38 despite edge_pct=33.3% \u2014 review CIPHER edge calculation for KXBTCD.",
+      "lesson": "ALERT: CIPHER edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-17T23:23:14Z"
+    },
+    {
+      "grade": "F",
+      "agent": "AXIOM",
+      "ticker": "KXETHD-26APR1817-T2349.99",
+      "pnl": -28.88,
+      "pattern": "AXIOM|KXETHD|60-80",
+      "reason": "Large loss $-28.88 despite edge_pct=14.0% \u2014 review AXIOM edge calculation for KXETHD.",
+      "lesson": "ALERT: AXIOM edge model may be broken on KXETHD. Investigate immediately.",
+      "timestamp": "2026-04-18T17:47:36Z"
+    },
+    {
+      "grade": "A",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1817-T75749.99",
+      "pnl": 2.1912,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (30.4%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-18T17:47:38Z"
+    },
+    {
+      "grade": "F",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1817-T75999.99",
+      "pnl": -1.71,
+      "pattern": "DELTA|KXBTCD|40-60",
+      "reason": "Large loss $-1.71 despite edge_pct=45.5% \u2014 review DELTA edge calculation for KXBTCD.",
+      "lesson": "ALERT: DELTA edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-18T17:47:39Z"
+    },
+    {
+      "grade": "F",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1817-T75749.99",
+      "pnl": -10.2204,
+      "pattern": "DELTA|KXBTCD|60-80",
+      "reason": "Large loss $-10.22 despite edge_pct=31.5% \u2014 review DELTA edge calculation for KXBTCD.",
+      "lesson": "ALERT: DELTA edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-18T18:28:41Z"
+    },
+    {
+      "grade": "A",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1817-T75999.99",
+      "pnl": 4.237,
+      "pattern": "DELTA|KXBTCD|20-40",
+      "reason": "Edge confirmed (35.0%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-18T18:28:43Z"
+    },
+    {
+      "grade": "A",
+      "agent": "DIAMOND",
+      "ticker": "KXETHD-26APR1817-T2349.99",
+      "pnl": 4.485,
+      "pattern": "DIAMOND|KXETHD|60-80",
+      "reason": "Edge confirmed (12.0%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-18T18:33:44Z"
+    },
+    {
+      "grade": "F",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1817-T75749.99",
+      "pnl": -9.6525,
+      "pattern": "DELTA|KXBTCD|40-60",
+      "reason": "Large loss $-9.65 despite edge_pct=44.5% \u2014 review DELTA edge calculation for KXBTCD.",
+      "lesson": "ALERT: DELTA edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-18T19:18:46Z"
+    },
+    {
+      "grade": "A",
+      "agent": "DELTA",
+      "ticker": "KXBTCD-26APR1817-T75999.99",
+      "pnl": 2.1879,
+      "pattern": "DELTA|KXBTCD|20-40",
+      "reason": "Edge confirmed (25.0%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-18T19:28:04Z"
+    },
+    {
+      "grade": "A",
+      "agent": "CIPHER",
+      "ticker": "KXBTCD-26APR1817-T75749.99",
+      "pnl": 0.8892,
+      "pattern": "CIPHER|KXBTCD|60-80",
+      "reason": "Edge confirmed (29.6%), trade won. Textbook execution.",
+      "lesson": null,
+      "timestamp": "2026-04-18T20:42:42Z"
+    },
+    {
+      "grade": "F",
+      "agent": "AXIOM",
+      "ticker": "KXPGATOUR-RBH26-SSCH",
+      "pnl": -54.1749,
+      "pattern": "AXIOM|KXPGATOUR|20-40",
+      "reason": "Large loss $-54.17 despite edge_pct=16.5% \u2014 review AXIOM edge calculation for KXPGATOUR.",
+      "lesson": "ALERT: AXIOM edge model may be broken on KXPGATOUR. Investigate immediately.",
+      "timestamp": "2026-04-19T19:31:06Z"
+    },
+    {
+      "grade": "F",
+      "agent": "AXIOM",
+      "ticker": "KXBTCD-26APR2017-T74499.99",
+      "pnl": -54.912,
+      "pattern": "AXIOM|KXBTCD|60-80",
+      "reason": "Large loss $-54.91 despite edge_pct=24.0% \u2014 review AXIOM edge calculation for KXBTCD.",
+      "lesson": "ALERT: AXIOM edge model may be broken on KXBTCD. Investigate immediately.",
+      "timestamp": "2026-04-20T14:23:24Z"
+    }
+  ],
+  "pattern_flags": [
+    "CIPHER|KXBTCD|60-80",
+    "DELTA|KXBTCD|20-40",
+    "DELTA|KXBTCD|40-60",
+    "DELTA|KXBTCD|60-80",
+    "AXIOM|KXBTCD|60-80"
+  ]
 }

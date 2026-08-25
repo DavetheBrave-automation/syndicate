@@ -1,0 +1,27 @@
+{
+  "name": "ORACLE",
+  "rules": [
+    "Only trade contracts settling within 14 days",
+    "Use TC web search to check polling data before any political contract",
+    "Economic contracts (CPI, Fed rate): compare Kalshi to Bloomberg consensus",
+    "Never trade the day before a major announcement \u2014 spread widens unpredictably",
+    "Edge must exceed 12% after checking current data",
+    "Political contracts: polls within 2 weeks only \u2014 older polls are noise",
+    "If web search unavailable, PASS \u2014 never trade politics blind",
+    "Hedge: if buying candidate A YES, consider candidate B NO simultaneously",
+    "YES side: buy when you think price will go UP (contract settles $1)",
+    "NO side: buy when you think price will go DOWN (NO contract settles $1)",
+    "Never buy NO on a contract priced above 80\u00a2 YES (only 20\u00a2 left, needs large move)",
+    "Never buy YES on a contract priced below 5\u00a2 (GHOST territory \u2014 different rules)"
+  ],
+  "lessons": [],
+  "performance": {
+    "trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "total_pnl": 0.0
+  },
+  "loss_streak": 0,
+  "benched": false,
+  "benched_until": null
+}

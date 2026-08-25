@@ -1,20 +1,25 @@
 {
   "name": "AXIOM",
   "rules": [
-    "Only trade when settlement is within 3 days and volume exceeds 1000",
-    "Bet WITH market consensus at extreme prices (>70% YES or <30% YES)",
+    "Only trade when settlement is within 48 hours and volume exceeds 5000",
+    "Bet WITH market consensus at extremes: YES only above 0.70, NO only below 0.20",
     "Spread must be 0.04 or less \u2014 wide spreads erase mathematical edge",
     "PROPHECY tier reserved for same-day settlement with 35%+ displacement from 0.5",
-    "Never trade tennis markets \u2014 ACE owns that domain"
+    "Never trade tennis markets \u2014 ACE owns that domain",
+    "Never enter YES when price is below 0.20; that zone signals NO consensus.",
+    "Verify settlement date from ticker before entry; auto-reject if beyond 72 hours."
   ],
-  "lessons": [],
+  "lessons": [
+    "AXIOM entered YES on a sub-20% probability golf market, directly contradicting rule 1 \u0393\u00c7\u00f6 at <30% YES, consensus is NO and the bet should have been the opposite side or skipped entirely.",
+    "The ticker settles April 26 \u0393\u00c7\u00f6 6 days out \u0393\u00c7\u00f6 violating the 3-day settlement rule and giving BTC price sufficient time to reverse the NO position into a 15% stop. Fee drag ($10.75) amplified a directional loss that a stricter settlement gate would have prevented entirely."
+  ],
   "performance": {
-    "trades": 21,
-    "wins": 13,
-    "losses": 8,
-    "total_pnl": 62.851
+    "trades": 29,
+    "wins": 14,
+    "losses": 15,
+    "total_pnl": -77.6309
   },
-  "loss_streak": 0,
+  "loss_streak": 3,
   "benched": false,
   "benched_until": null
 }

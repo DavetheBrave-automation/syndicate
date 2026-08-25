@@ -8,7 +8,7 @@ import sys
 import json
 import sqlite3
 import glob
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 
 import yaml
@@ -30,10 +30,11 @@ sys.path.insert(0, _SYNDICATE_ROOT)
 app = Flask(__name__)
 app.jinja_env.globals["enumerate"] = enumerate
 
-_DB_PATH    = os.path.join(_SYNDICATE_ROOT, "logs", "syndicate_trades.db")
-_LOG_PATH   = os.path.join(_SYNDICATE_ROOT, "logs", "syndicate.log")
-_MEMORY_DIR = os.path.join(_SYNDICATE_ROOT, "memory")
-_CACHE_DIR  = os.path.join(_SYNDICATE_ROOT, "signals", "cache")
+_DB_PATH        = os.path.join(_SYNDICATE_ROOT, "logs", "syndicate_trades.db")
+_LOG_PATH       = os.path.join(_SYNDICATE_ROOT, "logs", "syndicate.log")
+_MEMORY_DIR     = os.path.join(_SYNDICATE_ROOT, "memory")
+_CACHE_DIR      = os.path.join(_SYNDICATE_ROOT, "signals", "cache")
+_LIVE_FEED_PATH = os.path.join(_SYNDICATE_ROOT, "logs", "live_feed.json")
 _CFG_PATH   = os.path.join(_SYNDICATE_ROOT, "syndicate_config.yaml")
 
 _KNOWN_AGENTS = [
@@ -106,7 +107,7 @@ def _load_trades() -> list[dict]:
         cur = conn.cursor()
         cur.execute("""
             SELECT id, ticker, side, entry_price, exit_price, quantity,
-                   pnl, exit_reason, agent_name, contract_class,
+                   pnl, fees_paid, net_pnl, exit_reason, agent_name, contract_class,
                    entry_time, exit_time, hold_seconds
             FROM syndicate_trades
             ORDER BY id DESC
@@ -117,6 +118,88 @@ def _load_trades() -> list[dict]:
         return rows
     except Exception:
         return []
+
+
+def _get_fleet_intel() -> dict:
+    """Compute fleet intelligence data: session stats, tiers, promotion watch."""
+    result: dict = {
+        "closed_trades": 0, "session_pnl": 0.0,
+        "trades_24h": 0, "winrate_24h": 0, "pnl_24h": 0.0,
+        "open_positions": 0, "current_exposure": 0.0,
+        "tier_distribution": {"elite": [], "proven": [], "qualified": [], "probation": []},
+        "promotion_watch": [],
+    }
+    if not os.path.exists(_DB_PATH):
+        return result
+    try:
+        conn = sqlite3.connect(_DB_PATH)
+        cur  = conn.cursor()
+
+        # All-time closed trades count (for fleet bar)
+        cur.execute("SELECT COUNT(*) FROM syndicate_trades WHERE exit_time IS NOT NULL")
+        result["closed_trades"] = int((cur.fetchone() or (0,))[0] or 0)
+
+        # Session P&L = today only in CT (CDT = UTC-5 in April)
+        ct_today = (datetime.now(timezone.utc) - timedelta(hours=5)).strftime("%Y-%m-%d")
+        cur.execute("""
+            SELECT COALESCE(SUM(COALESCE(net_pnl, pnl)), 0)
+            FROM syndicate_trades
+            WHERE exit_time IS NOT NULL
+              AND date(datetime(exit_time, '-5 hours')) = ?
+        """, (ct_today,))
+        result["session_pnl"] = round(float((cur.fetchone() or (0,))[0] or 0), 2)
+
+        cur.execute("""
+            SELECT COUNT(*),
+                   SUM(CASE WHEN COALESCE(net_pnl, pnl) > 0 THEN 1 ELSE 0 END),
+                   COALESCE(SUM(COALESCE(net_pnl, pnl)), 0)
+            FROM syndicate_trades
+            WHERE exit_time IS NOT NULL
+              AND exit_time >= datetime('now', '-24 hours')
+        """)
+        r = cur.fetchone()
+        t24 = int(r[0] or 0)
+        result["trades_24h"]  = t24
+        result["winrate_24h"] = round(int(r[1] or 0) / t24 * 100) if t24 else 0
+        result["pnl_24h"]     = round(float(r[2] or 0), 2)
+
+        cur.execute("""
+            SELECT COUNT(*), COALESCE(SUM(CAST(entry_price AS REAL)/100.0*quantity),0)
+            FROM syndicate_trades WHERE exit_time IS NULL
+        """)
+        r = cur.fetchone()
+        result["open_positions"]   = int(r[0] or 0)
+        result["current_exposure"] = round(float(r[1] or 0), 2)
+
+        conn.close()
+    except Exception:
+        pass
+
+    try:
+        from core.agent_tier_manager import get_all_tiers, get_promotion_progress  # noqa: PLC0415
+        dist = result["tier_distribution"]
+        for a in get_all_tiers():
+            t = a["tier"]
+            if t in dist:
+                dist[t].append(a["agent"])
+            try:
+                prog = get_promotion_progress(a["agent"])
+                if prog and prog["trades_needed"] <= 10 and prog["wins_needed"] <= 6:
+                    result["promotion_watch"].append({
+                        "agent":         a["agent"],
+                        "next_tier":     prog["next_tier"].upper(),
+                        "trades_needed": prog["trades_needed"],
+                        "wins_needed":   prog["wins_needed"],
+                        "win_rate":      round(prog["win_rate"] * 100, 1),
+                        "min_wr":        round(prog["min_wr_for_next"] * 100, 1),
+                    })
+            except Exception:
+                pass
+        result["promotion_watch"] = result["promotion_watch"][:4]
+    except Exception:
+        pass
+
+    return result
 
 
 def _tail_log(n: int = 40) -> list[str]:
@@ -131,7 +214,7 @@ def _tail_log(n: int = 40) -> list[str]:
 
 
 def _load_agent_stats() -> dict[str, dict]:
-    """Canonical agent stats from DB — used for both roster tiles and leaderboard."""
+    """Canonical agent stats from DB — uses net_pnl (fee-adjusted) where available."""
     if not os.path.exists(_DB_PATH):
         return {}
     try:
@@ -140,8 +223,8 @@ def _load_agent_stats() -> dict[str, dict]:
         cur.execute("""
             SELECT agent_name,
                    COUNT(*) as trades,
-                   SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as wins,
-                   ROUND(COALESCE(SUM(pnl), 0), 2) as total_pnl
+                   SUM(CASE WHEN COALESCE(net_pnl, pnl) > 0 THEN 1 ELSE 0 END) as wins,
+                   ROUND(SUM(COALESCE(net_pnl, pnl, 0)), 2) as total_pnl
             FROM syndicate_trades
             WHERE exit_time IS NOT NULL
             GROUP BY agent_name
@@ -224,6 +307,7 @@ def dashboard():
     agent_stats = _load_agent_stats()
     leaderboard = sorted(agent_stats.values(), key=lambda x: -x["pnl"])
     meta        = _load_meta()
+    fleet_intel = _get_fleet_intel()
     valid_from_id = int(meta.get("data_valid_from_trade_id", 0))
     valid_from_ts = meta.get("data_valid_from", "")[:10]  # YYYY-MM-DD
 
@@ -271,9 +355,11 @@ def dashboard():
         {"label": "Claude Macro",  "val": signals.get("macro_llm_status", "NO_KEY"),  "raw": None},
     ]
 
-    # Total trades and P&L
-    total_pnl    = round(sum(float(t.get("pnl") or 0) for t in trades
-                             if int(t.get("id") or 0) > valid_from_id), 2)
+    # Total trades and P&L — prefer net_pnl (fee-adjusted), fall back to pnl
+    total_pnl    = round(sum(
+        float(t.get("net_pnl") if t.get("net_pnl") is not None else t.get("pnl") or 0)
+        for t in trades if int(t.get("id") or 0) > valid_from_id
+    ), 2)
     total_trades = len(trades)
 
     now_utc = datetime.now(timezone.utc).strftime("%H:%M UTC")
@@ -294,12 +380,24 @@ def dashboard():
         max_exposure   = risk.get("max_total_exposure", 50),
         valid_from_id  = valid_from_id,
         valid_from_ts  = valid_from_ts,
+        fleet_intel    = fleet_intel,
     )
 
 
 @app.route("/healthz")
 def healthz():
     return jsonify({"ok": True, "mode": "PAPER", "agents": len(_KNOWN_AGENTS)})
+
+
+@app.route("/api/live_feed")
+def api_live_feed():
+    try:
+        if os.path.exists(_LIVE_FEED_PATH):
+            with open(_LIVE_FEED_PATH, encoding="utf-8") as f:
+                return jsonify(json.load(f))
+    except Exception:
+        pass
+    return jsonify([])
 
 
 @app.route("/api/signals")

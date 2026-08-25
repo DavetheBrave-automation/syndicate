@@ -170,6 +170,28 @@ class DeltaAgent(BaseAgent):
 
         YES side: Kalshi UNDERPRICES (buy YES → profits when market moves up)
         NO side:  Kalshi OVERPRICES  (buy NO  → profits when market moves down)
+
+        ⚠️  DO NOT PROMOTE DELTA TO QUALIFIED TIER — FEE BACKFILL FINDING (2026-04-16)  ⚠️
+
+        Fee backfill across 31 historical trades showed:
+          Gross P&L: +$0.02 (appeared breakeven)
+          Net P&L:   -$7.50 (after Kalshi taker fees)
+          Net Win Rate: 25.8% (gross was 45.2% — both below 50%)
+
+        Root cause: Entry edge is insufficient to overcome fee drag. The arb gap DELTA
+        detects (~8-10%) is being filled before the position can close profitably, or
+        the gap itself is priced-in by the time TC fills the order.
+
+        This is NOT a hold-time problem. HTSR fix did not save DELTA.
+        The issue is entry logic — the 8% minimum gap threshold does not guarantee
+        net-positive edge after 3.9% round-trip fee drag at PROBATION sizing.
+
+        PROMOTION BLOCK (special case override in agent_tier_manager.py):
+          - Do NOT promote to QUALIFIED regardless of gross trade count or gross WR
+          - Promotion requires: ≥40 trades at PROBATION sizing + net WR ≥ 45% + net P&L > 0
+          - See audits/2026-04-16_delta_fee_failure.md for full analysis
+
+        Next review: 2026-04-21 after 10 more trades at $25 PROBATION sizing.
         """
         series    = _extract_series(market.ticker)
         yes_price = market.yes_price
@@ -244,8 +266,7 @@ class DeltaAgent(BaseAgent):
             sig["hold_to_settlement"] = True  # use HTSR price gates not pct exits (matches AXIOM)
 
             if market.days_to_settlement > 1:
-                sig["max_size_dollars"] = 2
-                sig["lottery_ticket"]   = True
+                sig["lottery_ticket"] = True  # informational — TC may reduce size
 
             logger.info(
                 "[DELTA] BTC arb signal: %s side=%s YES=%d¢ btc=$%.0f strike=$%.0f gap=%.0f%%",
@@ -285,8 +306,7 @@ class DeltaAgent(BaseAgent):
             return
 
         if market.days_to_settlement > 1:
-            signal["signal"]["max_size_dollars"] = 2
-            signal["signal"]["lottery_ticket"]   = True
+            signal["signal"]["lottery_ticket"] = True  # informational — TC may reduce size
 
         signal["signal"]["requires_web_search"] = True
         signal["signal"]["search_query"]         = search_q
